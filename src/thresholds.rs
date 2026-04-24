@@ -164,3 +164,61 @@ impl Thresholds {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Severity, Thresholds};
+
+    #[test]
+    fn high_is_bad_thresholds_use_warning_and_critical_bounds() {
+        let thresholds = Thresholds::default();
+
+        assert_eq!(thresholds.cpu_usage_severity(79.9), Severity::Normal);
+        assert_eq!(thresholds.cpu_usage_severity(80.0), Severity::Warning);
+        assert_eq!(thresholds.cpu_usage_severity(95.0), Severity::Critical);
+
+        assert_eq!(thresholds.io_pressure_severity(9.9), Severity::Normal);
+        assert_eq!(thresholds.io_pressure_severity(10.0), Severity::Warning);
+        assert_eq!(thresholds.io_pressure_severity(25.0), Severity::Critical);
+
+        assert_eq!(thresholds.mem_pressure_severity(9.9), Severity::Normal);
+        assert_eq!(thresholds.mem_pressure_severity(10.0), Severity::Warning);
+        assert_eq!(thresholds.mem_pressure_severity(25.0), Severity::Critical);
+
+        assert_eq!(thresholds.iowait_severity(19.9), Severity::Normal);
+        assert_eq!(thresholds.iowait_severity(20.0), Severity::Warning);
+        assert_eq!(thresholds.iowait_severity(40.0), Severity::Critical);
+    }
+
+    #[test]
+    fn low_memory_available_is_bad() {
+        let thresholds = Thresholds::default();
+
+        assert_eq!(thresholds.memory_available_severity(2048), Severity::Normal);
+        assert_eq!(
+            thresholds.memory_available_severity(1024),
+            Severity::Warning
+        );
+        assert_eq!(
+            thresholds.memory_available_severity(256),
+            Severity::Critical
+        );
+    }
+
+    #[test]
+    fn temperature_thresholds_share_boundary_behavior() {
+        let thresholds = Thresholds::default();
+
+        assert_eq!(thresholds.cpu_temp_severity(74.9), Severity::Normal);
+        assert_eq!(thresholds.cpu_temp_severity(75.0), Severity::Warning);
+        assert_eq!(thresholds.cpu_temp_severity(85.0), Severity::Critical);
+
+        assert_eq!(thresholds.dimm_temp_severity(69.9), Severity::Normal);
+        assert_eq!(thresholds.dimm_temp_severity(70.0), Severity::Warning);
+        assert_eq!(thresholds.dimm_temp_severity(80.0), Severity::Critical);
+
+        assert_eq!(thresholds.disk_temp_severity(49.9), Severity::Normal);
+        assert_eq!(thresholds.disk_temp_severity(50.0), Severity::Warning);
+        assert_eq!(thresholds.disk_temp_severity(60.0), Severity::Critical);
+    }
+}

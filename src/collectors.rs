@@ -588,3 +588,119 @@ impl VmStats {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        dimm_temp_avg, dimm_temp_max, extract_psi_value, nvme_temp_max, CpuStats, DimmTemp,
+        DiskStats, NetStats, VmStats,
+    };
+
+    #[test]
+    fn extracts_psi_values_by_key() {
+        let line = "some avg10=1.23 avg60=4.56 avg300=7.89 total=42";
+
+        assert_eq!(extract_psi_value(line, "avg10"), Some(1.23));
+        assert_eq!(extract_psi_value(line, "avg60"), Some(4.56));
+        assert_eq!(extract_psi_value(line, "missing"), None);
+    }
+
+    #[test]
+    fn temperature_helpers_handle_empty_and_non_empty_inputs() {
+        assert_eq!(dimm_temp_avg(&[]), None);
+        assert_eq!(dimm_temp_max(&[]), None);
+        assert_eq!(nvme_temp_max(&[]), None);
+
+        let dimms = vec![
+            DimmTemp {
+                label: "A1".to_string(),
+                temp_celsius: 40.0,
+            },
+            DimmTemp {
+                label: "B1".to_string(),
+                temp_celsius: 50.0,
+            },
+        ];
+        let nvme = vec![("nvme0".to_string(), 45.0), ("nvme1".to_string(), 55.0)];
+
+        assert_eq!(dimm_temp_avg(&dimms), Some(45.0));
+        assert_eq!(dimm_temp_max(&dimms), Some(50.0));
+        assert_eq!(nvme_temp_max(&nvme), Some(55.0));
+    }
+
+    #[test]
+    fn disk_delta_saturates_counters_and_keeps_instantaneous_depth() {
+        let last = DiskStats {
+            reads_completed: 10,
+            sectors_read: 20,
+            writes_completed: 30,
+            io_in_progress: 99,
+            io_time_ms: 100,
+            weighted_io_time_ms: 200,
+            ..DiskStats::default()
+        };
+        let current = DiskStats {
+            reads_completed: 15,
+            sectors_read: 5,
+            writes_completed: 40,
+            io_in_progress: 3,
+            io_time_ms: 140,
+            weighted_io_time_ms: 260,
+            ..DiskStats::default()
+        };
+
+        let delta = last.delta(&current);
+
+        assert_eq!(delta.reads_completed, 5);
+        assert_eq!(delta.sectors_read, 0);
+        assert_eq!(delta.writes_completed, 10);
+        assert_eq!(delta.io_in_progress, 3);
+        assert_eq!(delta.io_time_ms, 40);
+        assert_eq!(delta.weighted_io_time_ms, 60);
+    }
+
+    #[test]
+    fn cpu_net_and_vm_deltas_use_saturating_counters() {
+        let cpu_delta = CpuStats {
+            user: 5,
+            procs_running: 99,
+            ..CpuStats::default()
+        }
+        .delta(&CpuStats {
+            user: 9,
+            idle: 1,
+            procs_running: 2,
+            procs_blocked: 1,
+            ..CpuStats::default()
+        });
+        assert_eq!(cpu_delta.user, 4);
+        assert_eq!(cpu_delta.procs_running, 2);
+        assert_eq!(cpu_delta.procs_blocked, 1);
+
+        let net_delta = NetStats {
+            rx_bytes: 100,
+            tx_bytes: 100,
+            ..NetStats::default()
+        }
+        .delta(&NetStats {
+            rx_bytes: 150,
+            tx_bytes: 90,
+            ..NetStats::default()
+        });
+        assert_eq!(net_delta.rx_bytes, 50);
+        assert_eq!(net_delta.tx_bytes, 0);
+
+        let vm_delta = VmStats {
+            pgfault: 10,
+            pswpout: 5,
+            ..VmStats::default()
+        }
+        .delta(&VmStats {
+            pgfault: 11,
+            pswpout: 3,
+            ..VmStats::default()
+        });
+        assert_eq!(vm_delta.pgfault, 1);
+        assert_eq!(vm_delta.pswpout, 0);
+    }
+}

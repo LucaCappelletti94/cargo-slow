@@ -211,3 +211,83 @@ impl IpmiSensors {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{IpmiSensor, IpmiSensors, SensorStatus};
+
+    #[test]
+    fn parses_ipmi_sensor_list_and_filters_bad_rows() {
+        let output = "\
+DIMMA1 | 64 | degrees C | ok
+DIMMB1 | 81 | degrees C | cr
+CPU Temp | 50 | degrees C | ok
+Fan1 | 1800 | RPM | ok
+Broken | na | degrees C | ok
+Malformed row";
+
+        let sensors = IpmiSensors::parse_sensor_list(output);
+
+        assert_eq!(sensors.len(), 4);
+        assert_eq!(sensors[0].name, "DIMMA1");
+        assert_eq!(sensors[0].value, 64.0);
+        assert_eq!(sensors[1].status, SensorStatus::Critical);
+    }
+
+    #[test]
+    fn dimm_helpers_return_memory_temperature_summary() {
+        let sensors = IpmiSensors {
+            available: true,
+            sensors: vec![
+                IpmiSensor {
+                    name: "DIMMA1".to_string(),
+                    value: 64.0,
+                    unit: "degrees C".to_string(),
+                    status: SensorStatus::Ok,
+                },
+                IpmiSensor {
+                    name: "P1-DIMMB1".to_string(),
+                    value: 81.0,
+                    unit: "degrees C".to_string(),
+                    status: SensorStatus::Critical,
+                },
+                IpmiSensor {
+                    name: "CPU Temp".to_string(),
+                    value: 50.0,
+                    unit: "degrees C".to_string(),
+                    status: SensorStatus::Ok,
+                },
+                IpmiSensor {
+                    name: "Fan1".to_string(),
+                    value: 1800.0,
+                    unit: "RPM".to_string(),
+                    status: SensorStatus::Ok,
+                },
+            ],
+        };
+
+        assert_eq!(sensors.dimm_sensors().len(), 2);
+        assert_eq!(sensors.max_dimm_temp(), Some(81.0));
+        assert_eq!(sensors.worst_dimm_status(), SensorStatus::Critical);
+        assert_eq!(
+            sensors.format_all_dimms(),
+            Some("DIMMA1:64°C[ok], P1-DIMMB1:81°C[CR!]".to_string())
+        );
+
+        let plotted = sensors.get_dimm_temps();
+        assert_eq!(plotted.len(), 2);
+        assert_eq!(plotted[1].status, "cr");
+    }
+
+    #[test]
+    fn status_parser_handles_all_status_levels() {
+        assert_eq!(IpmiSensors::parse_status("ok"), SensorStatus::Ok);
+        assert_eq!(IpmiSensors::parse_status("NC"), SensorStatus::NonCritical);
+        assert_eq!(IpmiSensors::parse_status("cr"), SensorStatus::Critical);
+        assert_eq!(
+            IpmiSensors::parse_status("nr"),
+            SensorStatus::NonRecoverable
+        );
+        assert_eq!(IpmiSensors::parse_status("na"), SensorStatus::NotAvailable);
+    }
+}

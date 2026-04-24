@@ -41,6 +41,8 @@ use crate::thresholds::{Severity, Thresholds};
 
 const MAX_WARNING_LINES: usize = 3;
 const MAX_RECOMMENDATION_LINES: usize = 4;
+const COMPACT_WIDTH: u16 = 100;
+const COMPACT_HEIGHT: u16 = 30;
 
 /// Run the TUI event loop.
 ///
@@ -83,9 +85,7 @@ fn run_tui_loop(
     let mut last_collection = Instant::now();
 
     // Draw loading screen immediately so user sees something
-    terminal.draw(|f| {
-        draw_loading_screen(f);
-    })?;
+    terminal.draw(|f| draw_loading_screen(f, app.config.io_bench))?;
 
     // Initial collection (this is the slow part)
     if let Ok(metrics) = app.collect_metrics() {
@@ -141,16 +141,46 @@ fn draw_ui(
     thresholds: &Thresholds,
 ) {
     let size = f.area();
-
-    // Check if we have warnings to show
     let warnings = availability.get_warnings();
-    let has_warnings = !warnings.is_empty();
-
-    // Generate recommendations from latest metrics
     let recommendations = metrics_history
         .back()
         .map(|m| generate_recommendations(m, thresholds))
         .unwrap_or_default();
+
+    if use_compact_layout(size) {
+        draw_compact_ui(
+            f,
+            metrics_history,
+            &warnings,
+            &recommendations,
+            thresholds,
+            size,
+        );
+    } else {
+        draw_full_ui(
+            f,
+            metrics_history,
+            &warnings,
+            &recommendations,
+            thresholds,
+            size,
+        );
+    }
+}
+
+fn use_compact_layout(size: Rect) -> bool {
+    size.width < COMPACT_WIDTH || size.height < COMPACT_HEIGHT
+}
+
+fn draw_full_ui(
+    f: &mut Frame,
+    metrics_history: &VecDeque<Metrics>,
+    warnings: &[String],
+    recommendations: &[Recommendation],
+    thresholds: &Thresholds,
+    size: Rect,
+) {
+    let has_warnings = !warnings.is_empty();
     let has_recommendations = !recommendations.is_empty();
 
     // Main layout: status bar, optional alerts, charts, optional advice, details.
@@ -183,7 +213,7 @@ fn draw_ui(
 
     // Warnings bar (if present)
     if has_warnings {
-        draw_warnings(f, &warnings, main_chunks[chunk_idx]);
+        draw_warnings(f, warnings, main_chunks[chunk_idx]);
         chunk_idx += 1;
     }
 
@@ -193,7 +223,7 @@ fn draw_ui(
 
     // Recommendations (if present)
     if has_recommendations {
-        draw_recommendations(f, &recommendations, main_chunks[chunk_idx]);
+        draw_recommendations(f, recommendations, main_chunks[chunk_idx]);
         chunk_idx += 1;
     }
 
@@ -202,7 +232,7 @@ fn draw_ui(
 }
 
 /// Draw a loading screen while initial metrics are being collected.
-fn draw_loading_screen(f: &mut Frame) {
+fn draw_loading_screen(f: &mut Frame, io_bench_enabled: bool) {
     let size = f.area();
 
     let block = Block::default()
@@ -211,20 +241,21 @@ fn draw_loading_screen(f: &mut Frame) {
         .title("slow-rs")
         .border_style(Style::default().fg(Color::Cyan));
 
-    let text = [
+    let mut lines = vec![
         "",
         "  Collecting initial metrics...",
         "",
         "  This includes:",
-        "    - I/O benchmarks (read/write speed)",
         "    - Memory allocation tests",
         "    - CPU compute benchmarks",
         "    - SMART disk health (if available)",
         "    - IPMI/BMC sensors (if available)",
-        "",
-        "  Please wait...",
-    ]
-    .join("\n");
+    ];
+    if io_bench_enabled {
+        lines.insert(5, "    - I/O benchmarks (read/write speed)");
+    }
+    lines.extend(["", "  Please wait..."]);
+    let text = lines.join("\n");
 
     let paragraph = Paragraph::new(text)
         .style(
@@ -241,7 +272,7 @@ fn draw_loading_screen(f: &mut Frame) {
 fn draw_status_bar(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rect) {
     let status_text = if let Some(m) = metrics_history.back() {
         format!(
-            " 📊 slow-rs | {} | CPU: {:.1}% | Mem: {}/{} MB | Load: {:.2} {:.2} {:.2} | Samples: {} | [q]uit",
+            " slow-rs | {} | CPU: {:.1}% | Mem: {}/{} MB | Load: {:.2} {:.2} {:.2} | Samples: {} | q quit",
             m.datetime,
             m.cpu_usage_percent,
             m.mem_used_mb,
@@ -252,7 +283,7 @@ fn draw_status_bar(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rec
             metrics_history.len()
         )
     } else {
-        " 📊 slow-rs | Collecting initial metrics... | [q]uit".to_string()
+        " slow-rs | Collecting initial metrics... | q quit".to_string()
     };
 
     let status = Paragraph::new(status_text)
@@ -281,7 +312,7 @@ fn draw_warnings(f: &mut Frame, warnings: &[String], area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .title("⚠ Limited Metrics")
+                .title("Limited Metrics")
                 .border_style(Style::default().fg(Color::Yellow)),
         );
     f.render_widget(paragraph, area);
@@ -306,10 +337,10 @@ fn draw_recommendations(f: &mut Frame, recommendations: &[Recommendation], area:
     // Build text showing all critical issues first, then warnings
     let mut lines = Vec::new();
     for rec in &critical {
-        lines.push(format!("🔴 {} - {}", rec.title, rec.advice));
+        lines.push(format!("CRIT {} - {}", rec.title, rec.advice));
     }
     for rec in &warnings {
-        lines.push(format!("🟡 {} - {}", rec.title, rec.advice));
+        lines.push(format!("WARN {} - {}", rec.title, rec.advice));
     }
 
     let text = join_limited_lines(lines, MAX_RECOMMENDATION_LINES);
@@ -324,11 +355,11 @@ fn draw_recommendations(f: &mut Frame, recommendations: &[Recommendation], area:
     };
 
     let title = if critical.len() > 1 {
-        format!("⚠ {} CRITICAL ISSUES", critical.len())
+        format!("{} Critical Issues", critical.len())
     } else if !critical.is_empty() {
-        "⚠ CRITICAL".to_string()
+        "Critical".to_string()
     } else {
-        "⚠ Warnings".to_string()
+        "Warnings".to_string()
     };
 
     let paragraph = Paragraph::new(text)
@@ -342,6 +373,268 @@ fn draw_recommendations(f: &mut Frame, recommendations: &[Recommendation], area:
                 .border_style(Style::default().fg(border_color)),
         );
     f.render_widget(paragraph, area);
+}
+
+fn draw_compact_ui(
+    f: &mut Frame,
+    metrics_history: &VecDeque<Metrics>,
+    warnings: &[String],
+    recommendations: &[Recommendation],
+    thresholds: &Thresholds,
+    size: Rect,
+) {
+    let has_alerts = !warnings.is_empty() || !recommendations.is_empty();
+    let detail_height = if size.height >= 24 { 6 } else { 5 };
+
+    let mut constraints = vec![Constraint::Length(1)];
+    if has_alerts {
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Min(8));
+    constraints.push(Constraint::Length(detail_height));
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(size);
+
+    let mut chunk_idx = 0;
+    draw_compact_status(f, metrics_history, chunks[chunk_idx]);
+    chunk_idx += 1;
+
+    if has_alerts {
+        draw_compact_alerts(f, warnings, recommendations, chunks[chunk_idx]);
+        chunk_idx += 1;
+    }
+
+    draw_compact_charts(f, metrics_history, thresholds, chunks[chunk_idx]);
+    chunk_idx += 1;
+    draw_compact_details(f, metrics_history, chunks[chunk_idx]);
+}
+
+fn draw_compact_status(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rect) {
+    let text = if let Some(m) = metrics_history.back() {
+        format!(
+            " slow-rs | CPU {:>4.1}% | Avail {} | Load {:.2}/{:.2}/{:.2} | samples {} | q quit",
+            m.cpu_usage_percent,
+            format_mb_compact(m.mem_available_mb),
+            m.load_avg_1,
+            m.load_avg_5,
+            m.load_avg_15,
+            metrics_history.len()
+        )
+    } else {
+        " slow-rs | collecting initial metrics | q quit".to_string()
+    };
+
+    let status = Paragraph::new(text).style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    f.render_widget(status, area);
+}
+
+fn draw_compact_alerts(
+    f: &mut Frame,
+    warnings: &[String],
+    recommendations: &[Recommendation],
+    area: Rect,
+) {
+    let critical = recommendations
+        .iter()
+        .filter(|r| r.severity == Severity::Critical)
+        .count();
+    let rec_warnings = recommendations
+        .iter()
+        .filter(|r| r.severity == Severity::Warning)
+        .count();
+
+    let (text, style) = if critical > 0 {
+        let first = recommendations
+            .iter()
+            .find(|r| r.severity == Severity::Critical)
+            .map(|r| r.title.as_str())
+            .unwrap_or("critical issue");
+        (
+            format!(
+                " CRIT {}: {} | limited metrics {}",
+                critical,
+                first,
+                warnings.len()
+            ),
+            Style::default().fg(Color::White).bg(Color::Red),
+        )
+    } else if rec_warnings > 0 {
+        let first = recommendations
+            .iter()
+            .find(|r| r.severity == Severity::Warning)
+            .map(|r| r.title.as_str())
+            .unwrap_or("warning");
+        (
+            format!(
+                " WARN {}: {} | limited metrics {}",
+                rec_warnings,
+                first,
+                warnings.len()
+            ),
+            Style::default().fg(Color::Black).bg(Color::Yellow),
+        )
+    } else {
+        let first = warnings
+            .first()
+            .map(String::as_str)
+            .unwrap_or("limited metrics");
+        (
+            format!(" LIMITED {}: {}", warnings.len(), first),
+            Style::default().fg(Color::Black).bg(Color::Yellow),
+        )
+    };
+
+    f.render_widget(Paragraph::new(text).style(style), area);
+}
+
+fn draw_compact_charts(
+    f: &mut Frame,
+    metrics_history: &VecDeque<Metrics>,
+    thresholds: &Thresholds,
+    area: Rect,
+) {
+    if metrics_history.is_empty() {
+        let loading = Paragraph::new("Waiting for data...").block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title("Charts"),
+        );
+        f.render_widget(loading, area);
+        return;
+    }
+
+    let latest = metrics_history.back().unwrap();
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+        .split(area);
+
+    let row1 = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+        .split(rows[0]);
+    let row2 = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+        .split(rows[1]);
+
+    let cpu_severity = thresholds.cpu_usage_severity(latest.cpu_usage_percent);
+    draw_line_chart(
+        f,
+        metrics_history,
+        row1[0],
+        "CPU %",
+        |m| m.cpu_usage_percent as f64,
+        ChartConfig {
+            color: Color::Yellow,
+            severity: cpu_severity,
+            warning: Some(thresholds.cpu_usage_warning as f64),
+            critical: Some(thresholds.cpu_usage_critical as f64),
+        },
+    );
+
+    let mem_severity = thresholds.memory_available_severity(latest.mem_available_mb);
+    draw_line_chart(
+        f,
+        metrics_history,
+        row1[1],
+        "Avail GB",
+        |m| m.mem_available_mb as f64 / 1024.0,
+        ChartConfig {
+            color: Color::Green,
+            severity: mem_severity,
+            ..Default::default()
+        },
+    );
+
+    let io_pressure_severity =
+        thresholds.io_pressure_severity(latest.io_pressure_some_avg10.unwrap_or(0.0));
+    draw_line_chart(
+        f,
+        metrics_history,
+        row2[0],
+        "I/O PSI %",
+        |m| m.io_pressure_some_avg10.unwrap_or(0.0),
+        ChartConfig {
+            color: Color::Magenta,
+            severity: io_pressure_severity,
+            warning: Some(thresholds.io_pressure_warning),
+            critical: Some(thresholds.io_pressure_critical),
+        },
+    );
+
+    let cpu_temp_severity = latest
+        .cpu_temp_celsius
+        .map(|t| thresholds.cpu_temp_severity(t))
+        .unwrap_or(Severity::Normal);
+    draw_line_chart(
+        f,
+        metrics_history,
+        row2[1],
+        "CPU Temp C",
+        |m| m.cpu_temp_celsius.unwrap_or(0.0),
+        ChartConfig {
+            color: Color::LightYellow,
+            severity: cpu_temp_severity,
+            warning: Some(thresholds.cpu_temp_warning),
+            critical: Some(thresholds.cpu_temp_critical),
+        },
+    );
+}
+
+fn draw_compact_details(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rect) {
+    let latest = match metrics_history.back() {
+        Some(m) => m,
+        None => return,
+    };
+
+    let text = [
+        format!(
+            "CPU {:>4.1}% | load {:.2}/{:.2}/{:.2} | procs {} | blocked {}",
+            latest.cpu_usage_percent,
+            latest.load_avg_1,
+            latest.load_avg_5,
+            latest.load_avg_15,
+            latest.process_count,
+            latest.procs_blocked
+        ),
+        format!(
+            "Mem used {} / {} | avail {} | swap {} | dirty {}",
+            format_mb_compact(latest.mem_used_mb),
+            format_mb_compact(latest.mem_total_mb),
+            format_mb_compact(latest.mem_available_mb),
+            format_mb_compact(latest.swap_used_mb),
+            format_mb_compact(latest.dirty_mb)
+        ),
+        format!(
+            "Pressure io {:>4.1}% | mem {:>4.1}% | cpu {:>4.1}% | iowait {}",
+            latest.io_pressure_some_avg10.unwrap_or(0.0),
+            latest.mem_pressure_some_avg10.unwrap_or(0.0),
+            latest.cpu_pressure_some_avg10.unwrap_or(0.0),
+            latest.cpu_iowait
+        ),
+        format!(
+            "Temp cpu {} | ram {} | disk {} | alloc {:.1}ms | compute {:.1}ms",
+            format_temp(latest.cpu_temp_celsius),
+            format_temp(latest.dimm_temp_max),
+            format_temp(latest.disk_temp_max),
+            latest.memory_alloc_duration_ms,
+            latest.compute_duration_ms
+        ),
+    ]
+    .join("\n");
+
+    let details = Paragraph::new(text).wrap(Wrap { trim: true }).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("Details"),
+    );
+    f.render_widget(details, area);
 }
 
 /// Draw the 3x3 grid of charts.
@@ -407,7 +700,7 @@ fn draw_charts(
         f,
         metrics_history,
         row1[0],
-        "I/O Read MB/s [bench]",
+        "I/O Read MB/s",
         |m| m.io_read_mb_per_sec.unwrap_or(0.0),
         ChartConfig {
             color: Color::Cyan,
@@ -419,7 +712,7 @@ fn draw_charts(
         f,
         metrics_history,
         row1[1],
-        "I/O Write MB/s [bench]",
+        "I/O Write MB/s",
         |m| m.io_write_mb_per_sec.unwrap_or(0.0),
         ChartConfig {
             color: Color::LightCyan,
@@ -432,7 +725,7 @@ fn draw_charts(
         f,
         metrics_history,
         row1[2],
-        "CPU % [/proc/stat]",
+        "CPU %",
         |m| m.cpu_usage_percent as f64,
         ChartConfig {
             color: Color::Yellow,
@@ -448,13 +741,12 @@ fn draw_charts(
         f,
         metrics_history,
         row2[0],
-        "Mem Avail MB [/proc/meminfo]",
+        "Mem Avail MB",
         |m| m.mem_available_mb as f64,
         ChartConfig {
             color: Color::Green,
             severity: mem_severity,
-            warning: Some(thresholds.memory_available_warning_mb as f64),
-            critical: Some(thresholds.memory_available_critical_mb as f64),
+            ..Default::default()
         },
     );
 
@@ -464,7 +756,7 @@ fn draw_charts(
         f,
         metrics_history,
         row2[1],
-        "I/O Pressure % [PSI]",
+        "I/O PSI %",
         |m| m.io_pressure_some_avg10.unwrap_or(0.0),
         ChartConfig {
             color: Color::Magenta,
@@ -478,13 +770,11 @@ fn draw_charts(
         .cpu_temp_celsius
         .map(|t| thresholds.cpu_temp_severity(t))
         .unwrap_or(Severity::Normal);
-    let cpu_temp_source = latest.cpu_temp_source.as_deref().unwrap_or("hwmon");
-    let cpu_temp_title = format!("CPU °C [{}]", cpu_temp_source);
     draw_line_chart(
         f,
         metrics_history,
         row2[2],
-        &cpu_temp_title,
+        "CPU Temp C",
         |m| m.cpu_temp_celsius.unwrap_or(0.0),
         ChartConfig {
             color: Color::LightYellow,
@@ -499,18 +789,11 @@ fn draw_charts(
         .dimm_temp_max
         .map(|t| thresholds.dimm_temp_severity(t))
         .unwrap_or(Severity::Normal);
-    let dimm_source = latest.dimm_temp_source.as_deref().unwrap_or("N/A");
-    // Show DIMM names and source in title
-    let dimm_title = if let Some(ref temps) = latest.dimm_temps {
-        format!("RAM °C [{}] {}", dimm_source, temps)
-    } else {
-        format!("RAM °C [{}]", dimm_source)
-    };
     draw_line_chart(
         f,
         metrics_history,
         row3[0],
-        &dimm_title,
+        "RAM Temp C",
         |m| m.dimm_temp_max.unwrap_or(0.0),
         ChartConfig {
             color: Color::Red,
@@ -524,18 +807,11 @@ fn draw_charts(
         .disk_temp_max
         .map(|t| thresholds.disk_temp_severity(t))
         .unwrap_or(Severity::Normal);
-    let disk_source = latest.disk_temp_source.as_deref().unwrap_or("N/A");
-    // Show disk names and source in title
-    let disk_title = if let Some(ref temps) = latest.disk_temps {
-        format!("Disk °C [{}] {}", disk_source, temps)
-    } else {
-        format!("Disk °C [{}]", disk_source)
-    };
     draw_line_chart(
         f,
         metrics_history,
         row3[1],
-        &disk_title,
+        "Disk Temp C",
         |m| m.disk_temp_max.unwrap_or(0.0),
         ChartConfig {
             color: Color::LightRed,
@@ -567,6 +843,20 @@ fn join_limited_lines(mut lines: Vec<String>, max_lines: usize) -> String {
     lines.join("\n")
 }
 
+fn format_mb_compact(value_mb: u64) -> String {
+    if value_mb >= 1024 {
+        format!("{:.1}G", value_mb as f64 / 1024.0)
+    } else {
+        format!("{}M", value_mb)
+    }
+}
+
+fn format_temp(value: Option<f64>) -> String {
+    value
+        .map(|v| format!("{:.1}C", v))
+        .unwrap_or_else(|| "N/A".to_string())
+}
+
 /// Draw IPMI temperature chart showing all DIMM temperatures over time.
 fn draw_ipmi_temps_chart(
     f: &mut Frame,
@@ -591,7 +881,7 @@ fn draw_ipmi_temps_chart(
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title("IPMI DIMM °C [ipmitool]")
+            .title("IPMI DIMM C")
             .border_style(Style::default().fg(color));
 
         let paragraph = Paragraph::new(text)
@@ -753,7 +1043,7 @@ fn draw_ipmi_temps_chart(
     };
     let dimm_count = dimm_names.len();
     let title = format!(
-        "IPMI DIMM °C ({}) max:{:.0}{}",
+        "IPMI DIMM C ({}) max:{:.0}{}",
         dimm_count, max_temp, status_indicator
     );
 
@@ -880,7 +1170,15 @@ fn draw_line_chart<F>(
     }
 
     let y_range = if (range_max - range_min).abs() < 0.001 {
-        (range_min - 1.0, range_max + 1.0)
+        if range_min >= 0.0 && range_max.abs() < 0.001 {
+            (0.0, 1.0)
+        } else if range_min >= 0.0 {
+            ((range_min * 0.95).max(0.0), range_max * 1.05)
+        } else {
+            (range_min - 1.0, range_max + 1.0)
+        }
+    } else if range_min >= 0.0 {
+        ((range_min * 0.95).max(0.0), range_max * 1.05)
     } else {
         (range_min * 0.95, range_max * 1.05)
     };
@@ -901,7 +1199,6 @@ fn draw_line_chart<F>(
     };
 
     let mut datasets = vec![Dataset::default()
-        .name(title)
         .marker(symbols::Marker::Braille)
         .graph_type(GraphType::Line)
         .style(Style::default().fg(color))
@@ -945,8 +1242,15 @@ fn draw_line_chart<F>(
         .title(Span::styled(title, title_style))
         .border_style(Style::default().fg(border_color));
 
+    let legend_position = if show_warning || show_critical {
+        Some(LegendPosition::TopRight)
+    } else {
+        None
+    };
+
     let chart = Chart::new(datasets)
         .block(block)
+        .legend_position(legend_position)
         .x_axis(
             Axis::default()
                 .title("Time")
@@ -1147,7 +1451,18 @@ pub fn run_headless(
 
 #[cfg(test)]
 mod tests {
-    use super::{join_limited_lines, notification_panel_height, shorten_dimm_name};
+    use std::collections::VecDeque;
+
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+
+    use crate::availability::MetricAvailability;
+    use crate::metrics::Metrics;
+    use crate::thresholds::Thresholds;
+
+    use super::{
+        draw_ui, format_mb_compact, format_temp, join_limited_lines, notification_panel_height,
+        shorten_dimm_name, use_compact_layout,
+    };
 
     #[test]
     fn notification_panel_height_reserves_borders_and_caps_body_lines() {
@@ -1175,5 +1490,117 @@ mod tests {
     fn shorten_dimm_name_keeps_slot_identifier() {
         assert_eq!(shorten_dimm_name("P1-DIMMA1"), "A1");
         assert_eq!(shorten_dimm_name("DIMMC1 Temp."), "C1");
+    }
+
+    #[test]
+    fn compact_layout_is_used_for_small_terminals() {
+        assert!(use_compact_layout(Rect::new(0, 0, 80, 24)));
+        assert!(!use_compact_layout(Rect::new(0, 0, 120, 40)));
+    }
+
+    #[test]
+    fn compact_formatters_keep_values_short() {
+        assert_eq!(format_mb_compact(512), "512M");
+        assert_eq!(format_mb_compact(1536), "1.5G");
+        assert_eq!(format_temp(Some(42.25)), "42.2C");
+        assert_eq!(format_temp(None), "N/A");
+    }
+
+    fn sample_history() -> VecDeque<Metrics> {
+        let mut history = VecDeque::new();
+        history.push_back(Metrics {
+            datetime: "2026-04-24T18:00:00Z".to_string(),
+            io_read_mb_per_sec: Some(512.0),
+            io_write_mb_per_sec: Some(384.0),
+            sha256_duration_ms: Some(3.2),
+            memory_alloc_duration_ms: 1.4,
+            compute_duration_ms: 2.5,
+            mem_total_mb: 64 * 1024,
+            mem_used_mb: 16 * 1024,
+            mem_available_mb: 48 * 1024,
+            cpu_usage_percent: 12.5,
+            cpu_count: 16,
+            load_avg_1: 1.0,
+            load_avg_5: 1.2,
+            load_avg_15: 1.4,
+            process_count: 180,
+            thread_count: 650,
+            procs_running: 2,
+            procs_blocked: 0,
+            cpu_pressure_some_avg10: Some(0.1),
+            mem_pressure_some_avg10: Some(0.0),
+            io_pressure_some_avg10: Some(0.5),
+            cpu_temp_celsius: Some(42.0),
+            dimm_temp_avg: Some(43.0),
+            dimm_temp_max: Some(44.0),
+            disk_temp_max: Some(38.0),
+            smart_available: Some(true),
+            smart_health_all_passed: Some(true),
+            ipmi_available: Some(false),
+            ..Metrics::default()
+        });
+        history
+    }
+
+    fn available_metrics() -> MetricAvailability {
+        MetricAvailability {
+            proc_pressure: true,
+            sys_hwmon_dimm: true,
+            sys_hwmon_nvme: true,
+            smartctl: true,
+            ipmitool: false,
+            privileged_commands: true,
+        }
+    }
+
+    fn render_dashboard(width: u16, height: u16) -> String {
+        let history = sample_history();
+        let availability = available_metrics();
+        let thresholds = Thresholds::default();
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|f| draw_ui(f, &history, &availability, &thresholds))
+            .unwrap();
+
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn compact_dashboard_renders_core_panels() {
+        let rendered = render_dashboard(80, 24);
+
+        assert!(rendered.contains("slow-rs"));
+        assert!(rendered.contains("CPU %"));
+        assert!(rendered.contains("Avail GB"));
+        assert!(rendered.contains("Details"));
+        assert!(rendered.contains("Temp cpu 42.0C"));
+    }
+
+    #[test]
+    fn full_dashboard_renders_core_panels() {
+        let rendered = render_dashboard(120, 40);
+
+        assert!(rendered.contains("I/O Read MB/s"));
+        assert!(rendered.contains("IPMI DIMM C"));
+        assert!(rendered.contains("Benchmarks"));
+        assert!(rendered.contains("Memory"));
+    }
+
+    #[test]
+    fn dashboards_do_not_repeat_single_series_chart_titles_as_legends() {
+        let rendered = render_dashboard(80, 40);
+        assert_eq!(rendered.matches("CPU %").count(), 1);
+
+        let rendered = render_dashboard(120, 40);
+        assert_eq!(rendered.matches("CPU %").count(), 1);
+        assert_eq!(rendered.matches("I/O Read MB/s").count(), 1);
     }
 }

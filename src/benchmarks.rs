@@ -232,7 +232,7 @@ impl Drop for RemoveFileOnDrop {
 
 #[cfg(test)]
 mod tests {
-    use super::write_benchmark_path;
+    use super::{create_test_file, write_benchmark_path};
 
     #[test]
     fn write_benchmark_path_does_not_target_fixed_sibling_file() {
@@ -241,5 +241,22 @@ mod tests {
 
         assert!(path.starts_with("/tmp/slowtest.bin.write_test."));
         assert_ne!(path, "/tmp/slowtest.bin.write_test");
+    }
+
+    #[test]
+    fn create_test_file_writes_requested_pattern_and_size() {
+        let path = std::env::temp_dir().join(format!(
+            "slow-rs-create-test-file-{}.bin",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        create_test_file(path.to_str().unwrap(), 1).unwrap();
+
+        let contents = std::fs::read(&path).unwrap();
+        assert_eq!(contents.len(), 1024 * 1024);
+        assert!(contents.iter().all(|byte| *byte == 0xAB));
+
+        let _ = std::fs::remove_file(&path);
     }
 }

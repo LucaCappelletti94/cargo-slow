@@ -458,8 +458,11 @@ fn should_write_csv_headers(path: &Path) -> bool {
 mod tests {
     use std::fs::File;
     use std::io::Write;
+    use std::path::PathBuf;
 
-    use super::should_write_csv_headers;
+    use crate::config::Config;
+
+    use super::{should_write_csv_headers, App};
 
     #[test]
     fn csv_headers_are_written_for_new_or_empty_files() {
@@ -480,5 +483,58 @@ mod tests {
         assert!(!should_write_csv_headers(&path));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    fn temp_path(name: &str, extension: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "slow-rs-{}-{}.{}",
+            name,
+            std::process::id(),
+            extension
+        ))
+    }
+
+    fn test_config(csv_file: PathBuf, test_file: PathBuf, io_bench: bool) -> Config {
+        Config {
+            interval: 5,
+            csv_file: csv_file.to_string_lossy().into_owned(),
+            test_file: test_file.to_string_lossy().into_owned(),
+            file_size_mb: 1,
+            history_size: 8,
+            headless: true,
+            io_bench,
+        }
+    }
+
+    #[test]
+    fn ensure_test_file_skips_when_io_bench_is_disabled() {
+        let csv_path = temp_path("skip-io-csv", "csv");
+        let test_path = temp_path("skip-io-test", "bin");
+        let _ = std::fs::remove_file(&csv_path);
+        let _ = std::fs::remove_file(&test_path);
+
+        let app = App::new(test_config(csv_path.clone(), test_path.clone(), false)).unwrap();
+
+        app.ensure_test_file().unwrap();
+        assert!(!test_path.exists());
+
+        let _ = std::fs::remove_file(csv_path);
+        let _ = std::fs::remove_file(test_path);
+    }
+
+    #[test]
+    fn ensure_test_file_creates_missing_io_benchmark_file() {
+        let csv_path = temp_path("create-io-csv", "csv");
+        let test_path = temp_path("create-io-test", "bin");
+        let _ = std::fs::remove_file(&csv_path);
+        let _ = std::fs::remove_file(&test_path);
+
+        let app = App::new(test_config(csv_path.clone(), test_path.clone(), true)).unwrap();
+
+        app.ensure_test_file().unwrap();
+        assert_eq!(std::fs::metadata(&test_path).unwrap().len(), 1024 * 1024);
+
+        let _ = std::fs::remove_file(csv_path);
+        let _ = std::fs::remove_file(test_path);
     }
 }

@@ -208,4 +208,74 @@ mod tests {
 
         assert!(!health.all_healthy());
     }
+
+    #[test]
+    fn parses_smartctl_json_health_temperature_and_attributes() {
+        let json = r#"
+        {
+          "smart_status": { "passed": true },
+          "temperature": { "current": 42 },
+          "ata_smart_attributes": {
+            "table": [
+              { "name": "Reallocated_Sector_Ct", "raw": { "value": 7 } },
+              { "name": "Current_Pending_Sector", "raw": { "value": 2 } }
+            ]
+          }
+        }
+        "#;
+
+        let device = SmartHealth::parse_smartctl_json(json, "/dev/sda").unwrap();
+
+        assert!(device.health_passed);
+        assert_eq!(device.temperature, Some(42.0));
+        assert_eq!(device.reallocated_sectors, Some(7));
+        assert_eq!(device.pending_sectors, Some(2));
+    }
+
+    #[test]
+    fn smart_helpers_aggregate_devices() {
+        let health = SmartHealth {
+            available: true,
+            devices: vec![
+                SmartDevice {
+                    health_passed: true,
+                    temperature: Some(41.0),
+                    reallocated_sectors: Some(1),
+                    pending_sectors: Some(0),
+                },
+                SmartDevice {
+                    health_passed: true,
+                    temperature: Some(47.0),
+                    reallocated_sectors: Some(4),
+                    pending_sectors: Some(3),
+                },
+            ],
+        };
+
+        assert_eq!(health.max_temperature(), Some(47.0));
+        assert_eq!(health.total_reallocated_sectors(), 5);
+        assert_eq!(health.total_pending_sectors(), 3);
+    }
+
+    #[test]
+    fn smart_attribute_parser_uses_reallocated_event_fallback() {
+        let json = r#"
+        {
+          "passed": false,
+          "current": 38,
+          "ata_smart_attributes": {
+            "table": [
+              { "name": "Reallocated_Event_Count", "raw": { "value": 9 } }
+            ]
+          }
+        }
+        "#;
+
+        let device = SmartHealth::parse_smartctl_json(json, "/dev/nvme0").unwrap();
+
+        assert!(!device.health_passed);
+        assert_eq!(device.temperature, Some(38.0));
+        assert_eq!(device.reallocated_sectors, Some(9));
+        assert_eq!(device.pending_sectors, None);
+    }
 }

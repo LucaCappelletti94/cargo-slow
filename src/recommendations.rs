@@ -255,3 +255,99 @@ pub fn generate_recommendations(metrics: &Metrics, thresholds: &Thresholds) -> V
 
     recs
 }
+
+#[cfg(test)]
+mod tests {
+    use super::generate_recommendations;
+    use crate::metrics::Metrics;
+    use crate::thresholds::{Severity, Thresholds};
+
+    fn baseline_metrics() -> Metrics {
+        Metrics {
+            mem_available_mb: 8192,
+            cpu_idle: 100,
+            ..Metrics::default()
+        }
+    }
+
+    fn titles(metrics: &Metrics) -> Vec<String> {
+        generate_recommendations(metrics, &Thresholds::default())
+            .into_iter()
+            .map(|r| r.title)
+            .collect()
+    }
+
+    #[test]
+    fn healthy_metrics_have_no_recommendations() {
+        assert!(generate_recommendations(&baseline_metrics(), &Thresholds::default()).is_empty());
+    }
+
+    #[test]
+    fn pressure_memory_and_cpu_recommendations_are_generated_and_sorted() {
+        let mut metrics = baseline_metrics();
+        metrics.io_pressure_some_avg10 = Some(30.0);
+        metrics.mem_pressure_some_avg10 = Some(12.0);
+        metrics.pswpout = 3;
+        metrics.mem_available_mb = 128;
+        metrics.cpu_usage_percent = 99.0;
+
+        let recommendations = generate_recommendations(&metrics, &Thresholds::default());
+
+        assert!(recommendations
+            .iter()
+            .any(|r| r.title == "High I/O Pressure"));
+        assert!(recommendations
+            .iter()
+            .any(|r| r.title == "Memory Pressure Detected"));
+        assert!(recommendations.iter().any(|r| r.title == "Swap Activity"));
+        assert!(recommendations
+            .iter()
+            .any(|r| r.title == "Critically Low Memory"));
+        assert!(recommendations.iter().any(|r| r.title == "CPU Saturated"));
+        assert_eq!(
+            recommendations.first().unwrap().severity,
+            Severity::Critical
+        );
+    }
+
+    #[test]
+    fn thermal_and_storage_recommendations_cover_warning_paths() {
+        let mut metrics = baseline_metrics();
+        metrics.cpu_temp_celsius = Some(76.0);
+        metrics.dimm_temp_max = Some(71.0);
+        metrics.disk_temp_max = Some(51.0);
+        metrics.cpu_user = 10;
+        metrics.cpu_system = 10;
+        metrics.cpu_idle = 60;
+        metrics.cpu_iowait = 20;
+        metrics.pgmajfault = 101;
+        metrics.dirty_mb = 2048;
+
+        let titles = titles(&metrics);
+
+        assert!(titles.contains(&"CPU Running Hot".to_string()));
+        assert!(titles.contains(&"RAM Running Warm".to_string()));
+        assert!(titles.contains(&"Disk Running Hot".to_string()));
+        assert!(titles.contains(&"High I/O Wait".to_string()));
+        assert!(titles.contains(&"High Major Faults".to_string()));
+        assert!(titles.contains(&"High Dirty Pages".to_string()));
+    }
+
+    #[test]
+    fn ipmi_dimm_status_recommendations_use_status_severity() {
+        let mut metrics = baseline_metrics();
+        metrics.ipmi_dimm_status = Some("nr".to_string());
+        metrics.ipmi_dimm_details = Some("DIMMA1:99C[NR!]".to_string());
+        let recommendations = generate_recommendations(&metrics, &Thresholds::default());
+        assert!(recommendations
+            .iter()
+            .any(|r| r.title == "DIMM NON-RECOVERABLE" && r.severity == Severity::Critical));
+
+        metrics.ipmi_dimm_status = Some("nc".to_string());
+        metrics.ipmi_dimm_details = None;
+        let recommendations = generate_recommendations(&metrics, &Thresholds::default());
+        assert!(recommendations
+            .iter()
+            .any(|r| r.title == "DIMM Warning" && r.severity == Severity::Warning));
+    }
+}

@@ -15,24 +15,30 @@ pub struct MetricAvailability {
     pub sys_hwmon_dimm: bool,
     /// NVMe temperature sensors found
     pub sys_hwmon_nvme: bool,
-    /// perf events accessible (requires CAP_PERFMON or root)
-    pub perf_events: bool,
     /// smartctl is available
     pub smartctl: bool,
     /// ipmitool is available (for BMC sensors)
     pub ipmitool: bool,
+    /// We can run commands that require elevated privileges.
+    pub privileged_commands: bool,
 }
 
 impl MetricAvailability {
     /// Probe all metric sources and return availability status.
     pub fn probe() -> Self {
+        let smartctl = Self::check_command_available("smartctl");
+        let ipmitool = Self::check_command_available("ipmitool");
+        let needs_privileges = smartctl || ipmitool;
+        let privileged_commands =
+            Self::has_elevated_privileges() || (needs_privileges && Self::has_sudo_access());
+
         Self {
             proc_pressure: std::fs::read_to_string("/proc/pressure/cpu").is_ok(),
             sys_hwmon_dimm: Self::check_dimm_sensors(),
             sys_hwmon_nvme: Self::check_nvme_sensors(),
-            perf_events: Self::check_perf_events(),
-            smartctl: Self::check_command_available("smartctl"),
-            ipmitool: Self::check_command_available("ipmitool"),
+            smartctl,
+            ipmitool,
+            privileged_commands,
         }
     }
 
@@ -66,13 +72,6 @@ impl MetricAvailability {
         false
     }
 
-    /// Check if perf events are accessible.
-    fn check_perf_events() -> bool {
-        std::fs::read_to_string("/proc/sys/kernel/perf_event_paranoid")
-            .map(|s| s.trim().parse::<i32>().unwrap_or(2) <= 1)
-            .unwrap_or(false)
-    }
-
     /// Check if a command is available in PATH.
     fn check_command_available(cmd: &str) -> bool {
         Command::new("which")
@@ -95,14 +94,15 @@ impl MetricAvailability {
         if !self.sys_hwmon_nvme {
             warnings.push("NVMe temp sensors not found".into());
         }
-        if !self.perf_events && !Self::has_elevated_privileges() {
-            warnings.push("Perf events restricted (run with sudo for full metrics)".into());
-        }
         if !self.smartctl {
             warnings.push("smartctl not found (install smartmontools for disk health)".into());
+        } else if !self.privileged_commands {
+            warnings.push("SMART health unavailable (run with sudo)".into());
         }
-        if !self.ipmitool && Self::has_elevated_privileges() {
+        if !self.ipmitool && self.privileged_commands {
             warnings.push("ipmitool not found (install for BMC/IPMI sensors)".into());
+        } else if self.ipmitool && !self.privileged_commands {
+            warnings.push("IPMI/BMC sensors unavailable (run with sudo)".into());
         }
 
         warnings
@@ -120,5 +120,29 @@ impl MetricAvailability {
             .output()
             .map(|s| s.status.success())
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MetricAvailability;
+
+    #[test]
+    fn warnings_include_privilege_gaps_for_installed_tools() {
+        let availability = MetricAvailability {
+            proc_pressure: true,
+            sys_hwmon_dimm: true,
+            sys_hwmon_nvme: true,
+            smartctl: true,
+            ipmitool: true,
+            privileged_commands: false,
+        };
+
+        let warnings = availability.get_warnings();
+
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("SMART health unavailable")));
+        assert!(warnings.iter().any(|w| w.contains("IPMI/BMC sensors")));
     }
 }

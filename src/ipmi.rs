@@ -6,7 +6,7 @@
 use std::process::Command;
 
 use crate::availability::MetricAvailability;
-use crate::metrics::{IpmiDimmTemp, IpmiTempReading};
+use crate::metrics::IpmiDimmTemp;
 
 /// IPMI sensor information.
 #[derive(Clone, Debug, Default)]
@@ -193,22 +193,6 @@ impl IpmiSensors {
             .iter()
             .filter(|s| s.status != SensorStatus::NotAvailable)
             .map(|s| IpmiDimmTemp {
-                name: s.name.trim().to_string(),
-                temp_celsius: s.value,
-                status: Self::status_to_string(&s.status),
-            })
-            .collect()
-    }
-
-    /// Get all temperature sensors for plotting.
-    pub fn get_all_temps(&self) -> Vec<IpmiTempReading> {
-        self.sensors
-            .iter()
-            .filter(|s| {
-                s.status != SensorStatus::NotAvailable
-                    && (s.unit.contains("degrees") || s.unit.contains("C"))
-            })
-            .map(|s| IpmiTempReading {
                 name: s.name.trim().to_string(),
                 temp_celsius: s.value,
                 status: Self::status_to_string(&s.status),

@@ -3,13 +3,12 @@
 //! This module provides a real-time dashboard using `ratatui` that displays:
 //!
 //! - Status bar with current metrics summary
-//! - Four charts showing key metrics over time
+//! - Nine charts showing key metrics over time
 //! - Detailed metrics panels at the bottom
 //!
 //! # Controls
 //!
 //! - `q` or `Esc`: Quit
-//! - `Up`/`Down`: Scroll (reserved for future use)
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,7 +28,7 @@ use ratatui::{
     text::Span,
     widgets::{
         Axis, Block, BorderType, Borders, Chart, Dataset, GraphType, LegendPosition, List,
-        ListItem, Paragraph,
+        ListItem, Paragraph, Wrap,
     },
     Frame, Terminal,
 };
@@ -39,6 +38,9 @@ use crate::availability::MetricAvailability;
 use crate::metrics::Metrics;
 use crate::recommendations::{generate_recommendations, Recommendation};
 use crate::thresholds::{Severity, Thresholds};
+
+const MAX_WARNING_LINES: usize = 3;
+const MAX_RECOMMENDATION_LINES: usize = 4;
 
 /// Run the TUI event loop.
 ///
@@ -79,7 +81,6 @@ fn run_tui_loop(
     let mut terminal = Terminal::new(backend)?;
 
     let mut last_collection = Instant::now();
-    let mut _scroll_offset = 0usize;
 
     // Draw loading screen immediately so user sees something
     terminal.draw(|f| {
@@ -102,12 +103,6 @@ fn run_tui_loop(
                         }
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             running.store(false, Ordering::Relaxed);
-                        }
-                        KeyCode::Up => {
-                            _scroll_offset = _scroll_offset.saturating_sub(1);
-                        }
-                        KeyCode::Down => {
-                            _scroll_offset = _scroll_offset.saturating_add(1);
                         }
                         _ => {}
                     }
@@ -158,36 +153,22 @@ fn draw_ui(
         .unwrap_or_default();
     let has_recommendations = !recommendations.is_empty();
 
-    // Main layout: status bar, [warnings], charts, [recommendations], details
-    let constraints = if has_warnings && has_recommendations {
-        vec![
-            Constraint::Length(3),  // Status bar
-            Constraint::Length(1),  // Warnings bar
-            Constraint::Min(18),    // Charts (3x2)
-            Constraint::Length(3),  // Recommendations
-            Constraint::Length(10), // Detailed metrics
-        ]
-    } else if has_warnings {
-        vec![
-            Constraint::Length(3),  // Status bar
-            Constraint::Length(1),  // Warnings bar
-            Constraint::Min(18),    // Charts
-            Constraint::Length(10), // Detailed metrics
-        ]
-    } else if has_recommendations {
-        vec![
-            Constraint::Length(3),  // Status bar
-            Constraint::Min(18),    // Charts
-            Constraint::Length(3),  // Recommendations
-            Constraint::Length(10), // Detailed metrics
-        ]
-    } else {
-        vec![
-            Constraint::Length(3),  // Status bar
-            Constraint::Min(18),    // Charts
-            Constraint::Length(10), // Detailed metrics
-        ]
-    };
+    // Main layout: status bar, optional alerts, charts, optional advice, details.
+    let mut constraints = vec![Constraint::Length(3)];
+    if has_warnings {
+        constraints.push(Constraint::Length(notification_panel_height(
+            warnings.len(),
+            MAX_WARNING_LINES,
+        )));
+    }
+    constraints.push(Constraint::Min(18));
+    if has_recommendations {
+        constraints.push(Constraint::Length(notification_panel_height(
+            recommendations.len(),
+            MAX_RECOMMENDATION_LINES,
+        )));
+    }
+    constraints.push(Constraint::Length(10));
 
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -288,9 +269,14 @@ fn draw_status_bar(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rec
 
 /// Draw the warnings bar for unavailable metrics.
 fn draw_warnings(f: &mut Frame, warnings: &[String], area: Rect) {
-    let text = warnings.join(" | ");
+    let lines = warnings
+        .iter()
+        .map(|warning| format!("! {}", warning))
+        .collect();
+    let text = join_limited_lines(lines, MAX_WARNING_LINES);
     let paragraph = Paragraph::new(text)
         .style(Style::default().fg(Color::Black).bg(Color::Yellow))
+        .wrap(Wrap { trim: true })
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -326,7 +312,7 @@ fn draw_recommendations(f: &mut Frame, recommendations: &[Recommendation], area:
         lines.push(format!("🟡 {} - {}", rec.title, rec.advice));
     }
 
-    let text = lines.join(" | ");
+    let text = join_limited_lines(lines, MAX_RECOMMENDATION_LINES);
 
     // Use most severe color for the panel
     let (fg, bg, border_color) = if !critical.is_empty() {
@@ -347,6 +333,7 @@ fn draw_recommendations(f: &mut Frame, recommendations: &[Recommendation], area:
 
     let paragraph = Paragraph::new(text)
         .style(Style::default().fg(fg).bg(bg))
+        .wrap(Wrap { trim: true })
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -357,7 +344,7 @@ fn draw_recommendations(f: &mut Frame, recommendations: &[Recommendation], area:
     f.render_widget(paragraph, area);
 }
 
-/// Draw the 3x2 grid of charts.
+/// Draw the 3x3 grid of charts.
 fn draw_charts(
     f: &mut Frame,
     metrics_history: &VecDeque<Metrics>,
@@ -560,6 +547,24 @@ fn draw_charts(
 
     // IPMI Temperature chart (shows all DIMM temps from BMC)
     draw_ipmi_temps_chart(f, metrics_history, thresholds, row3[2]);
+}
+
+/// Height for a bordered panel with up to `max_content_lines` visible body lines.
+fn notification_panel_height(line_count: usize, max_content_lines: usize) -> u16 {
+    let max_content_lines = max_content_lines.max(1);
+    let visible_lines = line_count.clamp(1, max_content_lines);
+    (visible_lines + 2) as u16
+}
+
+/// Join lines for a compact panel, replacing overflow with a summary line.
+fn join_limited_lines(mut lines: Vec<String>, max_lines: usize) -> String {
+    let max_lines = max_lines.max(1);
+    if lines.len() > max_lines {
+        let hidden = lines.len() - max_lines + 1;
+        lines.truncate(max_lines - 1);
+        lines.push(format!("... and {} more", hidden));
+    }
+    lines.join("\n")
 }
 
 /// Draw IPMI temperature chart showing all DIMM temperatures over time.
@@ -1138,4 +1143,37 @@ pub fn run_headless(
 
     println!("\nStopped. Data logged to {}", csv_file);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{join_limited_lines, notification_panel_height, shorten_dimm_name};
+
+    #[test]
+    fn notification_panel_height_reserves_borders_and_caps_body_lines() {
+        assert_eq!(notification_panel_height(1, 3), 3);
+        assert_eq!(notification_panel_height(3, 3), 5);
+        assert_eq!(notification_panel_height(8, 3), 5);
+    }
+
+    #[test]
+    fn join_limited_lines_summarizes_overflow() {
+        let lines = vec![
+            "one".to_string(),
+            "two".to_string(),
+            "three".to_string(),
+            "four".to_string(),
+        ];
+
+        assert_eq!(
+            join_limited_lines(lines, 3),
+            "one\ntwo\n... and 2 more".to_string()
+        );
+    }
+
+    #[test]
+    fn shorten_dimm_name_keeps_slot_identifier() {
+        assert_eq!(shorten_dimm_name("P1-DIMMA1"), "A1");
+        assert_eq!(shorten_dimm_name("DIMMC1 Temp."), "C1");
+    }
 }

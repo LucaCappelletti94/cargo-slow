@@ -65,6 +65,7 @@ impl SmartHealth {
             }
         }
 
+        health.available = !health.devices.is_empty();
         health
     }
 
@@ -156,7 +157,7 @@ impl SmartHealth {
 
     /// Check if all devices passed health check.
     pub fn all_healthy(&self) -> bool {
-        self.devices.iter().all(|d| d.health_passed)
+        !self.devices.is_empty() && self.devices.iter().all(|d| d.health_passed)
     }
 
     /// Get total reallocated sectors across all devices.
@@ -170,5 +171,41 @@ impl SmartHealth {
     /// Get total pending sectors across all devices.
     pub fn total_pending_sectors(&self) -> u64 {
         self.devices.iter().filter_map(|d| d.pending_sectors).sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SmartDevice, SmartHealth};
+
+    #[test]
+    fn empty_smart_results_are_not_healthy() {
+        let health = SmartHealth::default();
+
+        assert!(!health.all_healthy());
+    }
+
+    #[test]
+    fn all_healthy_requires_every_device_to_pass() {
+        let mut health = SmartHealth {
+            available: true,
+            devices: vec![SmartDevice {
+                health_passed: true,
+                temperature: None,
+                reallocated_sectors: None,
+                pending_sectors: None,
+            }],
+        };
+
+        assert!(health.all_healthy());
+
+        health.devices.push(SmartDevice {
+            health_passed: false,
+            temperature: None,
+            reallocated_sectors: None,
+            pending_sectors: None,
+        });
+
+        assert!(!health.all_healthy());
     }
 }

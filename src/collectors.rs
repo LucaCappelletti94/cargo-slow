@@ -293,7 +293,7 @@ pub fn read_net_stats() -> Option<NetStats> {
 
     for line in content.lines().skip(2) {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 11 {
+        if parts.len() < 12 {
             continue;
         }
 

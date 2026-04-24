@@ -33,14 +33,15 @@ use clap::Parser;
 #[command(
     author,
     version,
-    about = "Diagnose system slowdowns by monitoring performance metrics"
+    about = "Diagnose system slowdowns by monitoring performance metrics",
+    verbatim_doc_comment
 )]
 pub struct Config {
     /// Interval in seconds between measurements.
     ///
     /// Lower values give more granular data but increase system load
     /// from the benchmarks. Recommended: 5-30 seconds.
-    #[arg(short, long, default_value_t = 5)]
+    #[arg(short, long, default_value_t = 5, value_parser = parse_positive_u64)]
     pub interval: u64,
 
     /// Path to CSV log file.
@@ -63,14 +64,14 @@ pub struct Config {
     ///
     /// Larger files give more accurate throughput measurements but
     /// take longer to read/write. 256MB is a good balance.
-    #[arg(short, long, default_value_t = 256)]
+    #[arg(short, long, default_value_t = 256, value_parser = parse_positive_usize)]
     pub file_size_mb: usize,
 
     /// Number of data points to keep in memory for plotting.
     ///
     /// This controls how much history is shown in the TUI charts.
     /// At 5-second intervals, 120 points = 10 minutes of history.
-    #[arg(long, default_value_t = 120)]
+    #[arg(long, default_value_t = 120, value_parser = parse_positive_usize)]
     pub history_size: usize,
 
     /// Run in headless mode (no TUI, just logging).
@@ -91,6 +92,50 @@ pub struct Config {
     ///
     /// System I/O stats from /proc are always collected regardless.
     /// Enable this when you specifically want to measure disk performance.
-    #[arg(long)]
+    #[arg(long, verbatim_doc_comment)]
     pub io_bench: bool,
+}
+
+fn parse_positive_u64(value: &str) -> Result<u64, String> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|e| format!("invalid integer: {}", e))?;
+    if parsed == 0 {
+        Err("value must be at least 1".to_string())
+    } else {
+        Ok(parsed)
+    }
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|e| format!("invalid integer: {}", e))?;
+    if parsed == 0 {
+        Err("value must be at least 1".to_string())
+    } else {
+        Ok(parsed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::Config;
+
+    #[test]
+    fn rejects_zero_interval() {
+        assert!(Config::try_parse_from(["slow-rs", "--interval", "0"]).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_file_size() {
+        assert!(Config::try_parse_from(["slow-rs", "--file-size-mb", "0"]).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_history_size() {
+        assert!(Config::try_parse_from(["slow-rs", "--history-size", "0"]).is_err());
+    }
 }

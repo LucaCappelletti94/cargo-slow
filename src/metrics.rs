@@ -233,37 +233,30 @@ pub struct Metrics {
 
     // ===== SMART Health =====
     /// Whether SMART data is available
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub smart_available: Option<bool>,
     /// Whether all disks passed health check
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub smart_health_all_passed: Option<bool>,
     /// Total reallocated sectors across all disks
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub smart_reallocated_sectors_total: Option<u64>,
     /// Total pending sectors across all disks
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub smart_pending_sectors_total: Option<u64>,
 
     // ===== IPMI Sensors =====
     /// Whether IPMI data is available
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipmi_available: Option<bool>,
     /// IPMI DIMM temperature (max across all DIMMs)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipmi_dimm_temp_max: Option<f64>,
     /// IPMI DIMM status (ok, nc, cr, nr)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipmi_dimm_status: Option<String>,
     /// Detailed IPMI DIMM info (e.g., "DIMMC1:99°C[NR], DIMMD1:100°C[NR]")
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipmi_dimm_details: Option<String>,
-    /// Individual IPMI DIMM temperatures for plotting
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    /// Individual IPMI DIMM temperatures for in-memory plotting.
+    ///
+    /// This is intentionally skipped in CSV output because CSV rows must have
+    /// a stable scalar schema. The summarized `ipmi_dimm_details` field is
+    /// the CSV representation.
+    #[serde(skip_serializing)]
     pub ipmi_dimm_temps: Vec<IpmiDimmTemp>,
-    /// All IPMI temperature sensors (CPU, system, etc.)
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub ipmi_temps: Vec<IpmiTempReading>,
 }
 
 /// Individual DIMM temperature from IPMI.
@@ -277,13 +270,56 @@ pub struct IpmiDimmTemp {
     pub status: String,
 }
 
-/// General temperature reading from IPMI.
-#[derive(Serialize, Clone, Debug, Default)]
-pub struct IpmiTempReading {
-    /// Sensor name (e.g., "CPU Temp", "System Temp")
-    pub name: String,
-    /// Temperature in Celsius
-    pub temp_celsius: f64,
-    /// Sensor status
-    pub status: String,
+#[cfg(test)]
+mod tests {
+    use super::{IpmiDimmTemp, Metrics};
+
+    #[test]
+    fn csv_serialization_keeps_optional_columns_stable() {
+        let mut writer = csv::Writer::from_writer(Vec::new());
+
+        writer.serialize(Metrics::default()).unwrap();
+
+        let with_optional_values = Metrics {
+            smart_available: Some(true),
+            smart_health_all_passed: Some(false),
+            smart_reallocated_sectors_total: Some(7),
+            smart_pending_sectors_total: Some(2),
+            ipmi_available: Some(true),
+            ipmi_dimm_temp_max: Some(64.0),
+            ipmi_dimm_status: Some("ok".to_string()),
+            ipmi_dimm_details: Some("DIMMA1:64C[ok]".to_string()),
+            ..Metrics::default()
+        };
+        writer.serialize(with_optional_values).unwrap();
+
+        let csv = String::from_utf8(writer.into_inner().unwrap()).unwrap();
+        let mut rows = csv.lines();
+        let header_len = rows.next().unwrap().split(',').count();
+
+        for row in rows {
+            assert_eq!(row.split(',').count(), header_len);
+        }
+    }
+
+    #[test]
+    fn csv_serialization_skips_in_memory_ipmi_vectors() {
+        let metrics = Metrics {
+            ipmi_dimm_details: Some("DIMMA1:64C[ok]".to_string()),
+            ipmi_dimm_temps: vec![IpmiDimmTemp {
+                name: "DIMMA1".to_string(),
+                temp_celsius: 64.0,
+                status: "ok".to_string(),
+            }],
+            ..Metrics::default()
+        };
+
+        let mut writer = csv::Writer::from_writer(Vec::new());
+        writer.serialize(metrics).unwrap();
+        let csv = String::from_utf8(writer.into_inner().unwrap()).unwrap();
+
+        assert!(csv.contains("ipmi_dimm_details"));
+        assert!(csv.contains("DIMMA1:64C[ok]"));
+        assert!(!csv.contains("ipmi_dimm_temps"));
+    }
 }

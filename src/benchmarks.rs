@@ -14,8 +14,9 @@
 //! not be visible in system statistics alone.
 
 use sha2::{Digest, Sha256};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::time::Instant;
 
 /// Benchmark memory allocation performance.
@@ -150,12 +151,18 @@ pub fn benchmark_io(test_file: &str, file_size_mb: usize) -> std::io::Result<IoB
     let sha_duration_ms = read_duration.as_secs_f64() * 1000.0;
 
     // === Write benchmark ===
-    let write_test_file = format!("{}.write_test", test_file);
+    let write_test_file = write_benchmark_path(test_file);
+    let _cleanup = RemoveFileOnDrop {
+        path: write_test_file.clone(),
+    };
     let write_size_mb = (file_size_mb / 4).max(16); // Smaller write test
 
     let start = Instant::now();
     {
-        let mut f = File::create(&write_test_file)?;
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&write_test_file)?;
         let chunk = vec![0xCDu8; 1024 * 1024];
         for _ in 0..write_size_mb {
             f.write_all(&chunk)?;
@@ -164,9 +171,6 @@ pub fn benchmark_io(test_file: &str, file_size_mb: usize) -> std::io::Result<IoB
     }
     let write_duration = start.elapsed();
     let write_mb_per_sec = write_size_mb as f64 / write_duration.as_secs_f64();
-
-    // Cleanup
-    let _ = std::fs::remove_file(&write_test_file);
 
     Ok(IoBenchmarkResult {
         read_mb_per_sec,
@@ -201,4 +205,41 @@ pub fn create_test_file(path: &str, size_mb: usize) -> std::io::Result<()> {
     f.sync_all()?;
 
     Ok(())
+}
+
+fn write_benchmark_path(test_file: &str) -> PathBuf {
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    PathBuf::from(format!(
+        "{}.write_test.{}.{}",
+        test_file,
+        std::process::id(),
+        suffix
+    ))
+}
+
+struct RemoveFileOnDrop {
+    path: PathBuf,
+}
+
+impl Drop for RemoveFileOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_benchmark_path;
+
+    #[test]
+    fn write_benchmark_path_does_not_target_fixed_sibling_file() {
+        let path = write_benchmark_path("/tmp/slowtest.bin");
+        let path = path.to_string_lossy();
+
+        assert!(path.starts_with("/tmp/slowtest.bin.write_test."));
+        assert_ne!(path, "/tmp/slowtest.bin.write_test");
+    }
 }

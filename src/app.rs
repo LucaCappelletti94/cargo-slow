@@ -81,15 +81,15 @@ impl App {
     ///
     /// Returns an error if the CSV file cannot be opened.
     pub fn new(config: Config) -> std::io::Result<Self> {
-        // Initialize CSV writer (append mode, write header if new file)
-        let csv_exists = Path::new(&config.csv_file).exists();
+        // Initialize CSV writer (append mode, write header for new/empty files).
+        let write_headers = should_write_csv_headers(Path::new(&config.csv_file));
         let csv_file = OpenOptions::new()
             .append(true)
             .create(true)
             .open(&config.csv_file)?;
 
         let csv_writer = csv::WriterBuilder::new()
-            .has_headers(!csv_exists)
+            .has_headers(write_headers)
             .from_writer(csv_file);
 
         let history_size = config.history_size;
@@ -422,10 +422,6 @@ impl App {
                 .filter(|s| s.available)
                 .map(|s| s.get_dimm_temps())
                 .unwrap_or_default(),
-            ipmi_temps: ipmi
-                .filter(|s| s.available)
-                .map(|s| s.get_all_temps())
-                .unwrap_or_default(),
         };
 
         // Store current stats for next delta calculation
@@ -449,5 +445,40 @@ impl App {
             writer.flush()?;
         }
         Ok(())
+    }
+}
+
+fn should_write_csv_headers(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|m| m.len() == 0)
+        .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+    use std::io::Write;
+
+    use super::should_write_csv_headers;
+
+    #[test]
+    fn csv_headers_are_written_for_new_or_empty_files() {
+        let path = std::env::temp_dir().join(format!(
+            "slow-rs-empty-csv-{}-{}.csv",
+            std::process::id(),
+            "headers"
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        assert!(should_write_csv_headers(&path));
+
+        File::create(&path).unwrap();
+        assert!(should_write_csv_headers(&path));
+
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "timestamp,datetime").unwrap();
+        assert!(!should_write_csv_headers(&path));
+
+        let _ = std::fs::remove_file(&path);
     }
 }

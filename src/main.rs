@@ -34,8 +34,8 @@
 //! # Headless mode for logging only
 //! slow-rs --headless
 //!
-//! # Custom interval and skip I/O benchmark
-//! slow-rs -i 10 --skip-io-bench
+//! # Custom interval and enable I/O benchmark
+//! slow-rs -i 10 --io-bench
 //! ```
 //!
 //! ## Module Organization

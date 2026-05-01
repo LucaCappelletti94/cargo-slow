@@ -7,6 +7,7 @@ use std::process::Command;
 
 use crate::availability::MetricAvailability;
 use crate::metrics::IpmiDimmTemp;
+use crate::temperature::valid_sensor_temperature_celsius;
 
 /// IPMI sensor information.
 #[derive(Clone, Debug, Default)]
@@ -129,7 +130,9 @@ impl IpmiSensors {
                     || name_lower.contains("dram");
                 let is_temperature =
                     s.unit.contains("degrees") || s.unit.to_lowercase().contains("c");
-                is_memory_sensor && is_temperature
+                is_memory_sensor
+                    && is_temperature
+                    && valid_sensor_temperature_celsius(s.value).is_some()
             })
             .collect()
     }
@@ -250,6 +253,12 @@ Malformed row";
                     value: 81.0,
                     unit: "degrees C".to_string(),
                     status: SensorStatus::Critical,
+                },
+                IpmiSensor {
+                    name: "DIMM_BAD".to_string(),
+                    value: 1000.0,
+                    unit: "degrees C".to_string(),
+                    status: SensorStatus::NonRecoverable,
                 },
                 IpmiSensor {
                     name: "CPU Temp".to_string(),

@@ -184,6 +184,12 @@ pub struct Metrics {
     pub disk_temp_source: Option<String>,
     /// Maximum disk temperature in Celsius (from NVMe or SMART)
     pub disk_temp_max: Option<f64>,
+    /// Individual disk temperatures for in-memory plotting.
+    ///
+    /// This is skipped in CSV output because `disk_temps` is already the
+    /// stable scalar CSV representation.
+    #[serde(skip_serializing)]
+    pub disk_temp_readings: Vec<DiskTempReading>,
 
     // ===== Context Switches and Interrupts (delta) =====
     /// Number of context switches
@@ -270,9 +276,18 @@ pub struct IpmiDimmTemp {
     pub status: String,
 }
 
+/// Individual disk temperature.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct DiskTempReading {
+    /// Disk or controller name, e.g. "nvme0" or "/dev/sda".
+    pub name: String,
+    /// Temperature in Celsius.
+    pub temp_celsius: f64,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{IpmiDimmTemp, Metrics};
+    use super::{DiskTempReading, IpmiDimmTemp, Metrics};
 
     #[test]
     fn csv_serialization_keeps_optional_columns_stable() {
@@ -321,5 +336,31 @@ mod tests {
         assert!(csv.contains("ipmi_dimm_details"));
         assert!(csv.contains("DIMMA1:64C[ok]"));
         assert!(!csv.contains("ipmi_dimm_temps"));
+    }
+
+    #[test]
+    fn csv_serialization_skips_in_memory_disk_temperature_vectors() {
+        let metrics = Metrics {
+            disk_temps: Some("nvme0:38.0,nvme1:42.0".to_string()),
+            disk_temp_readings: vec![
+                DiskTempReading {
+                    name: "nvme0".to_string(),
+                    temp_celsius: 38.0,
+                },
+                DiskTempReading {
+                    name: "nvme1".to_string(),
+                    temp_celsius: 42.0,
+                },
+            ],
+            ..Metrics::default()
+        };
+
+        let mut writer = csv::Writer::from_writer(Vec::new());
+        writer.serialize(metrics).unwrap();
+        let csv = String::from_utf8(writer.into_inner().unwrap()).unwrap();
+
+        assert!(csv.contains("disk_temps"));
+        assert!(csv.contains("nvme0:38.0"));
+        assert!(!csv.contains("disk_temp_readings"));
     }
 }

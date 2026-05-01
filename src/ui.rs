@@ -35,7 +35,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::availability::MetricAvailability;
-use crate::metrics::Metrics;
+use crate::metrics::{DiskTempReading, Metrics};
 use crate::recommendations::{generate_recommendations, Recommendation};
 use crate::thresholds::{Severity, Thresholds};
 
@@ -43,6 +43,23 @@ const MAX_WARNING_LINES: usize = 3;
 const MAX_RECOMMENDATION_LINES: usize = 4;
 const COMPACT_WIDTH: u16 = 100;
 const COMPACT_HEIGHT: u16 = 30;
+const CHART_IO_READ: Color = Color::Rgb(0, 120, 170);
+const CHART_IO_WRITE: Color = Color::Rgb(0, 110, 130);
+const CHART_CPU: Color = Color::Rgb(175, 115, 0);
+const CHART_MEMORY: Color = Color::Rgb(0, 135, 95);
+const CHART_IO_PRESSURE: Color = Color::Rgb(145, 80, 170);
+const CHART_CPU_TEMP: Color = Color::Rgb(185, 95, 0);
+const CHART_RAM_TEMP: Color = Color::Rgb(175, 55, 65);
+const TEMP_SERIES_COLORS: [Color; 8] = [
+    Color::Rgb(0, 120, 170),
+    Color::Rgb(175, 115, 0),
+    Color::Rgb(145, 80, 170),
+    Color::Rgb(0, 135, 95),
+    Color::Rgb(0, 95, 175),
+    Color::Rgb(170, 80, 35),
+    Color::Rgb(0, 110, 130),
+    Color::Rgb(160, 70, 135),
+];
 
 /// Run the TUI event loop.
 ///
@@ -530,10 +547,10 @@ fn draw_compact_charts(
         "CPU %",
         |m| m.cpu_usage_percent as f64,
         ChartConfig {
-            color: Color::Yellow,
+            color: CHART_CPU,
             severity: cpu_severity,
             warning: Some(thresholds.cpu_usage_warning as f64),
-            critical: Some(thresholds.cpu_usage_critical as f64),
+            critical: None,
         },
     );
 
@@ -545,7 +562,7 @@ fn draw_compact_charts(
         "Avail GB",
         |m| m.mem_available_mb as f64 / 1024.0,
         ChartConfig {
-            color: Color::Green,
+            color: CHART_MEMORY,
             severity: mem_severity,
             ..Default::default()
         },
@@ -560,7 +577,7 @@ fn draw_compact_charts(
         "I/O PSI %",
         |m| m.io_pressure_some_avg10.unwrap_or(0.0),
         ChartConfig {
-            color: Color::Magenta,
+            color: CHART_IO_PRESSURE,
             severity: io_pressure_severity,
             warning: Some(thresholds.io_pressure_warning),
             critical: Some(thresholds.io_pressure_critical),
@@ -578,7 +595,7 @@ fn draw_compact_charts(
         "CPU Temp C",
         |m| m.cpu_temp_celsius.unwrap_or(0.0),
         ChartConfig {
-            color: Color::LightYellow,
+            color: CHART_CPU_TEMP,
             severity: cpu_temp_severity,
             warning: Some(thresholds.cpu_temp_warning),
             critical: Some(thresholds.cpu_temp_critical),
@@ -703,7 +720,7 @@ fn draw_charts(
         "I/O Read MB/s",
         |m| m.io_read_mb_per_sec.unwrap_or(0.0),
         ChartConfig {
-            color: Color::Cyan,
+            color: CHART_IO_READ,
             ..Default::default()
         },
     );
@@ -715,7 +732,7 @@ fn draw_charts(
         "I/O Write MB/s",
         |m| m.io_write_mb_per_sec.unwrap_or(0.0),
         ChartConfig {
-            color: Color::LightCyan,
+            color: CHART_IO_WRITE,
             ..Default::default()
         },
     );
@@ -728,10 +745,10 @@ fn draw_charts(
         "CPU %",
         |m| m.cpu_usage_percent as f64,
         ChartConfig {
-            color: Color::Yellow,
+            color: CHART_CPU,
             severity: cpu_severity,
             warning: Some(thresholds.cpu_usage_warning as f64),
-            critical: Some(thresholds.cpu_usage_critical as f64),
+            critical: None,
         },
     );
 
@@ -744,7 +761,7 @@ fn draw_charts(
         "Mem Avail MB",
         |m| m.mem_available_mb as f64,
         ChartConfig {
-            color: Color::Green,
+            color: CHART_MEMORY,
             severity: mem_severity,
             ..Default::default()
         },
@@ -759,7 +776,7 @@ fn draw_charts(
         "I/O PSI %",
         |m| m.io_pressure_some_avg10.unwrap_or(0.0),
         ChartConfig {
-            color: Color::Magenta,
+            color: CHART_IO_PRESSURE,
             severity: io_pressure_severity,
             warning: Some(thresholds.io_pressure_warning),
             critical: Some(thresholds.io_pressure_critical),
@@ -777,7 +794,7 @@ fn draw_charts(
         "CPU Temp C",
         |m| m.cpu_temp_celsius.unwrap_or(0.0),
         ChartConfig {
-            color: Color::LightYellow,
+            color: CHART_CPU_TEMP,
             severity: cpu_temp_severity,
             warning: Some(thresholds.cpu_temp_warning),
             critical: Some(thresholds.cpu_temp_critical),
@@ -796,30 +813,14 @@ fn draw_charts(
         "RAM Temp C",
         |m| m.dimm_temp_max.unwrap_or(0.0),
         ChartConfig {
-            color: Color::Red,
+            color: CHART_RAM_TEMP,
             severity: dimm_severity,
             warning: Some(thresholds.dimm_temp_warning),
             critical: Some(thresholds.dimm_temp_critical),
         },
     );
 
-    let disk_severity = latest
-        .disk_temp_max
-        .map(|t| thresholds.disk_temp_severity(t))
-        .unwrap_or(Severity::Normal);
-    draw_line_chart(
-        f,
-        metrics_history,
-        row3[1],
-        "Disk Temp C",
-        |m| m.disk_temp_max.unwrap_or(0.0),
-        ChartConfig {
-            color: Color::LightRed,
-            severity: disk_severity,
-            warning: Some(thresholds.disk_temp_warning),
-            critical: Some(thresholds.disk_temp_critical),
-        },
-    );
+    draw_disk_temps_chart(f, metrics_history, thresholds, row3[1]);
 
     // IPMI Temperature chart (shows all DIMM temps from BMC)
     draw_ipmi_temps_chart(f, metrics_history, thresholds, row3[2]);
@@ -855,6 +856,211 @@ fn format_temp(value: Option<f64>) -> String {
     value
         .map(|v| format!("{:.1}C", v))
         .unwrap_or_else(|| "N/A".to_string())
+}
+
+fn disk_temp_readings_for(metrics: &Metrics) -> Vec<DiskTempReading> {
+    if !metrics.disk_temp_readings.is_empty() {
+        metrics.disk_temp_readings.clone()
+    } else if let Some(temp) = metrics.disk_temp_max {
+        vec![DiskTempReading {
+            name: "max".to_string(),
+            temp_celsius: temp,
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
+fn shorten_disk_name(name: &str) -> String {
+    name.trim_start_matches("/dev/").to_string()
+}
+
+/// Draw disk temperature chart with one series per disk.
+fn draw_disk_temps_chart(
+    f: &mut Frame,
+    metrics_history: &VecDeque<Metrics>,
+    thresholds: &Thresholds,
+    area: Rect,
+) {
+    let latest = match metrics_history.back() {
+        Some(m) => m,
+        None => return,
+    };
+
+    let latest_readings = disk_temp_readings_for(latest);
+    if latest_readings.is_empty() {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("Disk Temp C")
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        let paragraph = Paragraph::new("N/A (need hwmon or smartctl)")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(block);
+
+        f.render_widget(paragraph, area);
+        return;
+    }
+
+    let disk_names: Vec<String> = latest_readings
+        .iter()
+        .map(|reading| reading.name.clone())
+        .collect();
+
+    let mut datasets_data: Vec<Vec<(f64, f64)>> = vec![Vec::new(); disk_names.len()];
+    for (time_idx, metrics) in metrics_history.iter().enumerate() {
+        let readings = disk_temp_readings_for(metrics);
+        for (disk_idx, disk_name) in disk_names.iter().enumerate() {
+            if let Some(temp) = readings
+                .iter()
+                .find(|reading| &reading.name == disk_name)
+                .map(|reading| reading.temp_celsius)
+            {
+                datasets_data[disk_idx].push((time_idx as f64, temp));
+            }
+        }
+    }
+
+    let all_temps: Vec<f64> = datasets_data
+        .iter()
+        .flat_map(|data| data.iter().map(|(_, temp)| *temp))
+        .collect();
+    if all_temps.is_empty() {
+        return;
+    }
+
+    let min_y = all_temps
+        .iter()
+        .copied()
+        .fold(f64::INFINITY, f64::min)
+        .max(0.0);
+    let max_y = all_temps.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let warn_temp = thresholds.disk_temp_warning;
+    let crit_temp = thresholds.disk_temp_critical;
+    let show_warning = max_y >= warn_temp * 0.5;
+    let show_critical = max_y >= crit_temp * 0.5;
+
+    let mut range_max = max_y;
+    if show_warning {
+        range_max = range_max.max(warn_temp * 1.1);
+    }
+    if show_critical {
+        range_max = range_max.max(crit_temp * 1.1);
+    }
+
+    let y_range = if (range_max - min_y).abs() < 1.0 {
+        ((min_y - 5.0).max(0.0), range_max + 5.0)
+    } else {
+        (min_y * 0.95, range_max * 1.05)
+    };
+
+    let max_temp = latest.disk_temp_max.unwrap_or(max_y);
+    let severity = thresholds.disk_temp_severity(max_temp);
+    let (border_color, title_style) = match severity {
+        Severity::Critical => (
+            Color::Red,
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
+        Severity::Warning => (
+            Color::Yellow,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Severity::Normal => (Color::Reset, Style::default()),
+    };
+
+    let mut datasets: Vec<Dataset> = Vec::new();
+    for (idx, (disk_name, data)) in disk_names.iter().zip(datasets_data.iter()).enumerate() {
+        let short_name = shorten_disk_name(disk_name);
+        let current_temp = latest_readings
+            .iter()
+            .find(|reading| &reading.name == disk_name)
+            .map(|reading| reading.temp_celsius)
+            .unwrap_or(0.0);
+        let legend_name = format!("{}:{:.0}", short_name, current_temp);
+
+        datasets.push(
+            Dataset::default()
+                .name(legend_name)
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(TEMP_SERIES_COLORS[idx % TEMP_SERIES_COLORS.len()]))
+                .data(data),
+        );
+    }
+
+    let data_len = metrics_history.len();
+    let warning_line: Vec<(f64, f64)>;
+    if show_warning {
+        warning_line = vec![(0.0, warn_temp), (data_len as f64, warn_temp)];
+        datasets.push(
+            Dataset::default()
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Yellow))
+                .data(&warning_line),
+        );
+    }
+
+    let critical_line: Vec<(f64, f64)>;
+    if show_critical {
+        critical_line = vec![(0.0, crit_temp), (data_len as f64, crit_temp)];
+        datasets.push(
+            Dataset::default()
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Red))
+                .data(&critical_line),
+        );
+    }
+
+    let title = if disk_names.len() > 1 {
+        format!("Disk Temp C ({}) max:{:.0}", disk_names.len(), max_temp)
+    } else {
+        format!("Disk Temp C max:{:.0}", max_temp)
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(Span::styled(title, title_style))
+        .border_style(Style::default().fg(border_color));
+
+    let chart = Chart::new(datasets)
+        .block(block)
+        .legend_position(Some(LegendPosition::TopRight))
+        .hidden_legend_constraints((Constraint::Min(0), Constraint::Min(0)))
+        .x_axis(
+            Axis::default()
+                .title("Time")
+                .style(Style::default().fg(Color::Gray))
+                .bounds([0.0, data_len as f64]),
+        )
+        .y_axis({
+            let mut labels = vec![Span::raw(format!("{:.0}", y_range.0))];
+            if show_warning {
+                labels.push(Span::styled(
+                    format!("W:{:.0}", warn_temp),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+            if show_critical {
+                labels.push(Span::styled(
+                    format!("C:{:.0}", crit_temp),
+                    Style::default().fg(Color::Red),
+                ));
+            }
+            labels.push(Span::raw(format!("{:.0}", y_range.1)));
+
+            Axis::default()
+                .title("")
+                .style(Style::default().fg(Color::Gray))
+                .labels(labels)
+                .bounds([y_range.0, y_range.1])
+        });
+
+    f.render_widget(chart, area);
 }
 
 /// Draw IPMI temperature chart showing all DIMM temperatures over time.
@@ -902,18 +1108,6 @@ fn draw_ipmi_temps_chart(
     if dimm_names.is_empty() {
         return;
     }
-
-    // Define colors for different DIMMs (cycle through these)
-    let colors = [
-        Color::Cyan,
-        Color::Yellow,
-        Color::Magenta,
-        Color::Green,
-        Color::LightBlue,
-        Color::LightRed,
-        Color::LightCyan,
-        Color::LightMagenta,
-    ];
 
     // Build data series for each DIMM
     let mut datasets_data: Vec<Vec<(f64, f64)>> = vec![Vec::new(); dimm_names.len()];
@@ -978,7 +1172,7 @@ fn draw_ipmi_temps_chart(
     let mut datasets: Vec<Dataset> = Vec::new();
 
     for (idx, (dimm_name, data)) in dimm_names.iter().zip(datasets_data.iter()).enumerate() {
-        let color = colors[idx % colors.len()];
+        let color = TEMP_SERIES_COLORS[idx % TEMP_SERIES_COLORS.len()];
 
         // Shorten the name for the legend (e.g., "P1-DIMMA1" -> "A1")
         let short_name = shorten_dimm_name(dimm_name);
@@ -1456,7 +1650,7 @@ mod tests {
     use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
     use crate::availability::MetricAvailability;
-    use crate::metrics::Metrics;
+    use crate::metrics::{DiskTempReading, Metrics};
     use crate::thresholds::Thresholds;
 
     use super::{
@@ -1533,7 +1727,18 @@ mod tests {
             cpu_temp_celsius: Some(42.0),
             dimm_temp_avg: Some(43.0),
             dimm_temp_max: Some(44.0),
-            disk_temp_max: Some(38.0),
+            disk_temps: Some("nvme0:38.0,nvme1:42.0".to_string()),
+            disk_temp_max: Some(42.0),
+            disk_temp_readings: vec![
+                DiskTempReading {
+                    name: "nvme0".to_string(),
+                    temp_celsius: 38.0,
+                },
+                DiskTempReading {
+                    name: "nvme1".to_string(),
+                    temp_celsius: 42.0,
+                },
+            ],
             smart_available: Some(true),
             smart_health_all_passed: Some(true),
             ipmi_available: Some(false),
@@ -1589,6 +1794,9 @@ mod tests {
         let rendered = render_dashboard(120, 40);
 
         assert!(rendered.contains("I/O Read MB/s"));
+        assert!(rendered.contains("Disk Temp C (2)"));
+        assert!(rendered.contains("nvme0:38"));
+        assert!(rendered.contains("nvme1:42"));
         assert!(rendered.contains("IPMI DIMM C"));
         assert!(rendered.contains("Benchmarks"));
         assert!(rendered.contains("Memory"));

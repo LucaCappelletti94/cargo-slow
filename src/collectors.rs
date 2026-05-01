@@ -15,6 +15,8 @@
 //! - `/proc/sys/fs/file-nr` - File descriptor usage
 //! - `/sys/class/hwmon/*/temp*` - Hardware temperatures
 
+use crate::temperature::valid_sensor_temperature_celsius;
+
 /// Detailed memory information from `/proc/meminfo`.
 #[derive(Default, Clone, Debug)]
 pub struct MemInfo {
@@ -400,7 +402,11 @@ pub fn read_temperatures() -> TempInfo {
                 let temp_path = path.join(format!("temp{}_input", i));
                 if let Ok(temp_str) = std::fs::read_to_string(&temp_path) {
                     if let Ok(temp_millic) = temp_str.trim().parse::<i64>() {
-                        let temp = temp_millic as f64 / 1000.0;
+                        let Some(temp) =
+                            valid_sensor_temperature_celsius(temp_millic as f64 / 1000.0)
+                        else {
+                            continue;
+                        };
 
                         if is_cpu && info.cpu_temp.is_none() {
                             info.cpu_temp = Some(temp);
@@ -448,26 +454,23 @@ pub fn read_temperatures() -> TempInfo {
 
 /// Get average DIMM temperature.
 pub fn dimm_temp_avg(temps: &[DimmTemp]) -> Option<f64> {
-    if temps.is_empty() {
+    let (sum, count) = temps
+        .iter()
+        .filter_map(|d| valid_sensor_temperature_celsius(d.temp_celsius))
+        .fold((0.0, 0usize), |(sum, count), temp| (sum + temp, count + 1));
+
+    if count == 0 {
         return None;
     }
-    let sum: f64 = temps.iter().map(|d| d.temp_celsius).sum();
-    Some(sum / temps.len() as f64)
+
+    Some(sum / count as f64)
 }
 
 /// Get maximum DIMM temperature.
 pub fn dimm_temp_max(temps: &[DimmTemp]) -> Option<f64> {
     temps
         .iter()
-        .map(|d| d.temp_celsius)
-        .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
-}
-
-/// Get maximum NVMe temperature.
-pub fn nvme_temp_max(temps: &[(String, f64)]) -> Option<f64> {
-    temps
-        .iter()
-        .map(|(_, t)| *t)
+        .filter_map(|d| valid_sensor_temperature_celsius(d.temp_celsius))
         .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
 }
 
@@ -592,8 +595,8 @@ impl VmStats {
 #[cfg(test)]
 mod tests {
     use super::{
-        dimm_temp_avg, dimm_temp_max, extract_psi_value, nvme_temp_max, CpuStats, DimmTemp,
-        DiskStats, NetStats, VmStats,
+        dimm_temp_avg, dimm_temp_max, extract_psi_value, CpuStats, DimmTemp, DiskStats, NetStats,
+        VmStats,
     };
 
     #[test]
@@ -609,7 +612,6 @@ mod tests {
     fn temperature_helpers_handle_empty_and_non_empty_inputs() {
         assert_eq!(dimm_temp_avg(&[]), None);
         assert_eq!(dimm_temp_max(&[]), None);
-        assert_eq!(nvme_temp_max(&[]), None);
 
         let dimms = vec![
             DimmTemp {
@@ -620,12 +622,13 @@ mod tests {
                 label: "B1".to_string(),
                 temp_celsius: 50.0,
             },
+            DimmTemp {
+                label: "dead".to_string(),
+                temp_celsius: 1000.0,
+            },
         ];
-        let nvme = vec![("nvme0".to_string(), 45.0), ("nvme1".to_string(), 55.0)];
-
         assert_eq!(dimm_temp_avg(&dimms), Some(45.0));
         assert_eq!(dimm_temp_max(&dimms), Some(50.0));
-        assert_eq!(nvme_temp_max(&nvme), Some(55.0));
     }
 
     #[test]

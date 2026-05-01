@@ -179,10 +179,10 @@ pub fn generate_recommendations(metrics: &Metrics, thresholds: &Thresholds) -> V
 
     // High CPU usage
     let cpu_severity = thresholds.cpu_usage_severity(metrics.cpu_usage_percent);
-    if cpu_severity == Severity::Critical {
+    if cpu_severity == Severity::Warning {
         recs.push(Recommendation {
-            severity: Severity::Critical,
-            title: "CPU Saturated".into(),
+            severity: Severity::Warning,
+            title: "High CPU Usage".into(),
             advice: format!(
                 "CPU at {:.0}%. Check: top, htop for CPU-intensive processes",
                 metrics.cpu_usage_percent
@@ -303,7 +303,9 @@ mod tests {
         assert!(recommendations
             .iter()
             .any(|r| r.title == "Critically Low Memory"));
-        assert!(recommendations.iter().any(|r| r.title == "CPU Saturated"));
+        assert!(recommendations
+            .iter()
+            .any(|r| { r.title == "High CPU Usage" && r.severity == Severity::Warning }));
         assert_eq!(
             recommendations.first().unwrap().severity,
             Severity::Critical

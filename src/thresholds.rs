@@ -24,8 +24,6 @@ pub struct Thresholds {
     pub io_pressure_critical: f64,
     /// CPU usage warning threshold (%)
     pub cpu_usage_warning: f32,
-    /// CPU usage critical threshold (%)
-    pub cpu_usage_critical: f32,
     /// Memory available warning threshold (MB)
     pub memory_available_warning_mb: u64,
     /// Memory available critical threshold (MB)
@@ -58,7 +56,6 @@ impl Default for Thresholds {
             io_pressure_warning: 10.0,
             io_pressure_critical: 25.0,
             cpu_usage_warning: 80.0,
-            cpu_usage_critical: 95.0,
             memory_available_warning_mb: 1024,
             memory_available_critical_mb: 256,
             cpu_temp_warning: 75.0,
@@ -89,9 +86,7 @@ impl Thresholds {
 
     /// Evaluate CPU usage severity.
     pub fn cpu_usage_severity(&self, value: f32) -> Severity {
-        if value >= self.cpu_usage_critical {
-            Severity::Critical
-        } else if value >= self.cpu_usage_warning {
+        if value >= self.cpu_usage_warning {
             Severity::Warning
         } else {
             Severity::Normal
@@ -174,9 +169,6 @@ mod tests {
         let thresholds = Thresholds::default();
 
         assert_eq!(thresholds.cpu_usage_severity(79.9), Severity::Normal);
-        assert_eq!(thresholds.cpu_usage_severity(80.0), Severity::Warning);
-        assert_eq!(thresholds.cpu_usage_severity(95.0), Severity::Critical);
-
         assert_eq!(thresholds.io_pressure_severity(9.9), Severity::Normal);
         assert_eq!(thresholds.io_pressure_severity(10.0), Severity::Warning);
         assert_eq!(thresholds.io_pressure_severity(25.0), Severity::Critical);
@@ -188,6 +180,16 @@ mod tests {
         assert_eq!(thresholds.iowait_severity(19.9), Severity::Normal);
         assert_eq!(thresholds.iowait_severity(20.0), Severity::Warning);
         assert_eq!(thresholds.iowait_severity(40.0), Severity::Critical);
+    }
+
+    #[test]
+    fn cpu_usage_is_warning_only_even_when_saturated() {
+        let thresholds = Thresholds::default();
+
+        assert_eq!(thresholds.cpu_usage_severity(79.9), Severity::Normal);
+        assert_eq!(thresholds.cpu_usage_severity(80.0), Severity::Warning);
+        assert_eq!(thresholds.cpu_usage_severity(95.0), Severity::Warning);
+        assert_eq!(thresholds.cpu_usage_severity(100.0), Severity::Warning);
     }
 
     #[test]

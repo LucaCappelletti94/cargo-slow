@@ -56,6 +56,7 @@ mod ipmi;
 mod metrics;
 mod recommendations;
 mod smart;
+mod temperature;
 mod thresholds;
 mod ui;
 

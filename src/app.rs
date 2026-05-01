@@ -15,8 +15,9 @@ use crate::benchmarks::{self, IoBenchmarkResult};
 use crate::collectors::{self, CpuStats, DiskStats, NetStats, VmStats};
 use crate::config::Config;
 use crate::ipmi::IpmiSensors;
-use crate::metrics::Metrics;
+use crate::metrics::{DiskTempReading, Metrics};
 use crate::smart::SmartHealth;
+use crate::temperature::valid_sensor_temperature_celsius;
 use crate::thresholds::Thresholds;
 
 /// Main application state.
@@ -231,21 +232,9 @@ impl App {
         let dimm_temp_avg = collectors::dimm_temp_avg(&temps.dimm_temps);
         let dimm_temp_max = collectors::dimm_temp_max(&temps.dimm_temps);
 
-        // === Determine disk temperature (prefer NVMe hwmon, fallback to SMART) ===
-        let (disk_temps, disk_temp_max, disk_temp_source) = if !temps.nvme_temps.is_empty() {
-            let temps_str = temps
-                .nvme_temps
-                .iter()
-                .map(|(name, temp)| format!("{}:{:.1}", name, temp))
-                .collect::<Vec<_>>()
-                .join(",");
-            let max = collectors::nvme_temp_max(&temps.nvme_temps);
-            (Some(temps_str), max, Some("nvme hwmon".to_string()))
-        } else if let Some(smart_temp) = smart.and_then(|s| s.max_temperature()) {
-            (None, Some(smart_temp), Some("smartctl".to_string()))
-        } else {
-            (None, None, None)
-        };
+        // === Determine disk temperature (NVMe hwmon plus SMART for non-NVMe disks) ===
+        let smart_temps = smart.map(|s| s.device_temperatures()).unwrap_or_default();
+        let disk_temps_snapshot = merge_disk_temperatures(&temps.nvme_temps, &smart_temps);
 
         // === Determine DIMM temperature source ===
         let dimm_temp_source = if !temps.dimm_temps.is_empty() {
@@ -368,9 +357,10 @@ impl App {
             dimm_temp_source,
             dimm_temp_avg,
             dimm_temp_max,
-            disk_temps,
-            disk_temp_source,
-            disk_temp_max,
+            disk_temps: disk_temps_snapshot.temps,
+            disk_temp_source: disk_temps_snapshot.source,
+            disk_temp_max: disk_temps_snapshot.max,
+            disk_temp_readings: disk_temps_snapshot.readings,
 
             context_switches: cpu_delta.as_ref().map(|s| s.context_switches).unwrap_or(0),
             interrupts: cpu_delta.as_ref().map(|s| s.interrupts).unwrap_or(0),
@@ -448,6 +438,93 @@ impl App {
     }
 }
 
+struct DiskTempSnapshot {
+    temps: Option<String>,
+    max: Option<f64>,
+    source: Option<String>,
+    readings: Vec<DiskTempReading>,
+}
+
+fn merge_disk_temperatures(
+    nvme_temps: &[(String, f64)],
+    smart_temps: &[(String, f64)],
+) -> DiskTempSnapshot {
+    let mut merged = nvme_temps.to_vec();
+
+    for (name, temp) in smart_temps {
+        if !nvme_temps.is_empty() && is_nvme_disk_name(name) {
+            continue;
+        }
+
+        let normalized = normalize_disk_name(name);
+        if !merged
+            .iter()
+            .any(|(existing_name, _)| normalize_disk_name(existing_name) == normalized)
+        {
+            merged.push((name.clone(), *temp));
+        }
+    }
+
+    let readings = disk_temp_readings_from_pairs(&merged);
+    let max = merged
+        .iter()
+        .filter_map(|(_, temp)| valid_sensor_temperature_celsius(*temp))
+        .fold(None, |acc, temp| {
+            Some(acc.map_or(temp, |current: f64| current.max(temp)))
+        });
+    let temps = if readings.is_empty() {
+        None
+    } else {
+        Some(format_disk_temp_readings(&readings))
+    };
+
+    let has_nvme = !nvme_temps.is_empty();
+    let has_smart = merged
+        .iter()
+        .any(|(name, _)| smart_temps.iter().any(|(smart_name, _)| smart_name == name));
+    let source = match (has_nvme, has_smart) {
+        (true, true) => Some("nvme hwmon + smartctl".to_string()),
+        (true, false) => Some("nvme hwmon".to_string()),
+        (false, true) => Some("smartctl".to_string()),
+        (false, false) => None,
+    };
+
+    DiskTempSnapshot {
+        temps,
+        max,
+        source,
+        readings,
+    }
+}
+
+fn normalize_disk_name(name: &str) -> String {
+    name.trim_start_matches("/dev/").to_string()
+}
+
+fn is_nvme_disk_name(name: &str) -> bool {
+    normalize_disk_name(name).starts_with("nvme")
+}
+
+fn disk_temp_readings_from_pairs(temps: &[(String, f64)]) -> Vec<DiskTempReading> {
+    temps
+        .iter()
+        .filter_map(|(name, temp)| {
+            valid_sensor_temperature_celsius(*temp).map(|temp| DiskTempReading {
+                name: name.clone(),
+                temp_celsius: temp,
+            })
+        })
+        .collect()
+}
+
+fn format_disk_temp_readings(readings: &[DiskTempReading]) -> String {
+    readings
+        .iter()
+        .map(|reading| format!("{}:{:.1}", reading.name, reading.temp_celsius))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 fn should_write_csv_headers(path: &Path) -> bool {
     std::fs::metadata(path)
         .map(|m| m.len() == 0)
@@ -462,7 +539,7 @@ mod tests {
 
     use crate::config::Config;
 
-    use super::{should_write_csv_headers, App};
+    use super::{merge_disk_temperatures, should_write_csv_headers, App};
 
     #[test]
     fn csv_headers_are_written_for_new_or_empty_files() {
@@ -536,5 +613,46 @@ mod tests {
 
         let _ = std::fs::remove_file(csv_path);
         let _ = std::fs::remove_file(test_path);
+    }
+
+    #[test]
+    fn disk_temperatures_merge_nvme_hwmon_with_sata_smart() {
+        let nvme_temps = vec![("nvme0".to_string(), 41.0)];
+        let smart_temps = vec![
+            ("/dev/nvme0n1".to_string(), 40.0),
+            ("/dev/sda".to_string(), 35.0),
+            ("/dev/sdb".to_string(), 36.0),
+            ("/dev/sdc".to_string(), 1000.0),
+        ];
+
+        let snapshot = merge_disk_temperatures(&nvme_temps, &smart_temps);
+
+        assert_eq!(snapshot.max, Some(41.0));
+        assert_eq!(snapshot.source.as_deref(), Some("nvme hwmon + smartctl"));
+        assert_eq!(
+            snapshot.temps.as_deref(),
+            Some("nvme0:41.0,/dev/sda:35.0,/dev/sdb:36.0")
+        );
+        assert_eq!(snapshot.readings.len(), 3);
+        assert!(snapshot.readings.iter().any(|r| r.name == "nvme0"));
+        assert!(snapshot.readings.iter().any(|r| r.name == "/dev/sda"));
+        assert!(snapshot.readings.iter().any(|r| r.name == "/dev/sdb"));
+        assert!(!snapshot.readings.iter().any(|r| r.name == "/dev/sdc"));
+        assert!(!snapshot.readings.iter().any(|r| r.name == "/dev/nvme0n1"));
+    }
+
+    #[test]
+    fn disk_temperatures_use_all_smart_devices_without_nvme_hwmon() {
+        let smart_temps = vec![
+            ("/dev/nvme0n1".to_string(), 40.0),
+            ("/dev/sda".to_string(), 35.0),
+            ("/dev/sdb".to_string(), 36.0),
+        ];
+
+        let snapshot = merge_disk_temperatures(&[], &smart_temps);
+
+        assert_eq!(snapshot.max, Some(40.0));
+        assert_eq!(snapshot.source.as_deref(), Some("smartctl"));
+        assert_eq!(snapshot.readings.len(), 3);
     }
 }

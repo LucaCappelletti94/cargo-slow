@@ -11,7 +11,7 @@ documentation = "https://docs.rs/slow-rs"
 readme = "README.md"
 keywords = ["monitoring", "diagnostics", "performance", "system", "linux"]
 categories = ["command-line-utilities", "development-tools::profiling"]
-rust-version = "1.70"
+rust-version = "1.88"
 exclude = [
     ".github/",
     "metrics.csv",

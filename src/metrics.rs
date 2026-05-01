@@ -254,7 +254,7 @@ pub struct Metrics {
     pub ipmi_dimm_temp_max: Option<f64>,
     /// IPMI DIMM status (ok, nc, cr, nr)
     pub ipmi_dimm_status: Option<String>,
-    /// Detailed IPMI DIMM info (e.g., "DIMMC1:99°C[NR], DIMMD1:100°C[NR]")
+    /// Detailed IPMI DIMM info, for example `DIMMC1:99°C[NR], DIMMD1:100°C[NR]`.
     pub ipmi_dimm_details: Option<String>,
     /// Individual IPMI DIMM temperatures for in-memory plotting.
     ///

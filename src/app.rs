@@ -429,9 +429,7 @@ impl App {
     /// Log metrics to CSV file.
     fn log_metrics(&mut self, metrics: &Metrics) -> std::io::Result<()> {
         if let Some(ref mut writer) = self.csv_writer {
-            writer
-                .serialize(metrics)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            writer.serialize(metrics).map_err(std::io::Error::other)?;
             writer.flush()?;
         }
         Ok(())

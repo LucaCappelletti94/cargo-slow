@@ -193,7 +193,7 @@ impl SmartHealth {
 
         let pending_sectors = Self::extract_smart_attribute_raw(json, "Current_Pending_Sector");
 
-        // NVMe drives expose this directly in the health log; SATA drives may
+        // NVMe drives expose this directly in the health log. SATA drives may
         // surface an equivalent power-loss attribute under different names.
         let unsafe_shutdowns = Self::extract_json_number(json, "unsafe_shutdowns")
             .map(|value| value as u64)

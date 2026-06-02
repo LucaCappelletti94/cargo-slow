@@ -246,6 +246,10 @@ pub struct Metrics {
     pub smart_reallocated_sectors_total: Option<u64>,
     /// Total pending sectors across all disks
     pub smart_pending_sectors_total: Option<u64>,
+    /// Total unsafe (ungraceful) shutdowns across all disks that report one
+    pub smart_unsafe_shutdowns_total: Option<u64>,
+    /// Per-disk unsafe shutdown counts (e.g., "nvme0:44,nvme2:0")
+    pub smart_unsafe_shutdowns: Option<String>,
 
     // ===== IPMI Sensors =====
     /// Whether IPMI data is available

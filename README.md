@@ -44,7 +44,7 @@ falls back to headless mode.
 - Disk I/O counters, queue depth, and optional read/write/hash benchmarks.
 - Network counters, process counts, and file descriptor usage.
 - CPU, DIMM, NVMe, SATA disk, and IPMI/BMC temperatures when available.
-- SMART health, reallocated sectors, pending sectors, and disk pass/fail state.
+- SMART health, reallocated sectors, pending sectors, unsafe shutdowns, and disk pass/fail state.
 
 Implausible sensor values are ignored rather than plotted or logged as real
 temperatures.

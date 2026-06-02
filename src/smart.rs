@@ -30,6 +30,12 @@ pub struct SmartDevice {
     pub reallocated_sectors: Option<u64>,
     /// Current pending sector count
     pub pending_sectors: Option<u64>,
+    /// Cumulative count of unsafe (ungraceful) shutdowns.
+    ///
+    /// This is the NVMe `unsafe_shutdowns` lifetime counter. It only ever
+    /// increases and rising while the host stays up (no reboot or power loss)
+    /// is a sign the drive controller is dropping off the bus on its own.
+    pub unsafe_shutdowns: Option<u64>,
 }
 
 impl SmartHealth {
@@ -168,6 +174,7 @@ impl SmartHealth {
             temperature: None,
             reallocated_sectors: None,
             pending_sectors: None,
+            unsafe_shutdowns: None,
         });
         device.temperature = Some(temperature);
         Some(device)
@@ -186,12 +193,20 @@ impl SmartHealth {
 
         let pending_sectors = Self::extract_smart_attribute_raw(json, "Current_Pending_Sector");
 
+        // NVMe drives expose this directly in the health log; SATA drives may
+        // surface an equivalent power-loss attribute under different names.
+        let unsafe_shutdowns = Self::extract_json_number(json, "unsafe_shutdowns")
+            .map(|value| value as u64)
+            .or_else(|| Self::extract_smart_attribute_raw(json, "Power-Off_Retract_Count"))
+            .or_else(|| Self::extract_smart_attribute_raw(json, "Unexpect_Power_Loss_Ct"));
+
         Some(SmartDevice {
             name: device.to_string(),
             health_passed,
             temperature,
             reallocated_sectors,
             pending_sectors,
+            unsafe_shutdowns,
         })
     }
 
@@ -389,6 +404,18 @@ impl SmartHealth {
     pub fn total_pending_sectors(&self) -> u64 {
         self.devices.iter().filter_map(|d| d.pending_sectors).sum()
     }
+
+    /// Get unsafe shutdown counts for every device that reported one.
+    pub fn unsafe_shutdowns(&self) -> Vec<(String, u64)> {
+        self.devices
+            .iter()
+            .filter_map(|device| {
+                device
+                    .unsafe_shutdowns
+                    .map(|count| (device.name.clone(), count))
+            })
+            .collect()
+    }
 }
 
 fn normalize_device_name(name: &str) -> String {
@@ -416,6 +443,7 @@ mod tests {
                 temperature: None,
                 reallocated_sectors: None,
                 pending_sectors: None,
+                unsafe_shutdowns: None,
             }],
         };
 
@@ -427,6 +455,7 @@ mod tests {
             temperature: None,
             reallocated_sectors: None,
             pending_sectors: None,
+            unsafe_shutdowns: None,
         });
 
         assert!(!health.all_healthy());
@@ -561,6 +590,7 @@ mod tests {
             temperature: None,
             reallocated_sectors: Some(3),
             pending_sectors: Some(1),
+            unsafe_shutdowns: None,
         };
 
         let device =
@@ -584,6 +614,7 @@ mod tests {
                     temperature: Some(41.0),
                     reallocated_sectors: Some(1),
                     pending_sectors: Some(0),
+                    unsafe_shutdowns: Some(44),
                 },
                 SmartDevice {
                     name: "/dev/sdb".to_string(),
@@ -591,6 +622,7 @@ mod tests {
                     temperature: Some(47.0),
                     reallocated_sectors: Some(4),
                     pending_sectors: Some(3),
+                    unsafe_shutdowns: None,
                 },
             ],
         };
@@ -604,6 +636,30 @@ mod tests {
         );
         assert_eq!(health.total_reallocated_sectors(), 5);
         assert_eq!(health.total_pending_sectors(), 3);
+        assert_eq!(
+            health.unsafe_shutdowns(),
+            vec![("/dev/sda".to_string(), 44)]
+        );
+    }
+
+    #[test]
+    fn parses_nvme_unsafe_shutdowns_from_health_log() {
+        let json = r#"
+        {
+          "smart_status": { "passed": true },
+          "temperature": { "current": 38 },
+          "nvme_smart_health_information_log": {
+            "critical_warning": 0,
+            "temperature": 38,
+            "unsafe_shutdowns": 44,
+            "media_errors": 0
+          }
+        }
+        "#;
+
+        let device = SmartHealth::parse_smartctl_json(json, "/dev/nvme0").unwrap();
+
+        assert_eq!(device.unsafe_shutdowns, Some(44));
     }
 
     #[test]

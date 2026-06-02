@@ -3,6 +3,8 @@
 //! This module analyzes metrics and generates actionable advice
 //! when issues are detected.
 
+use std::collections::VecDeque;
+
 use crate::metrics::Metrics;
 use crate::thresholds::{Severity, Thresholds};
 
@@ -247,18 +249,86 @@ pub fn generate_recommendations(metrics: &Metrics, thresholds: &Thresholds) -> V
     }
 
     // Sort by severity (critical first)
-    recs.sort_by_key(|r| match r.severity {
-        Severity::Critical => 0,
-        Severity::Warning => 1,
-        Severity::Normal => 2,
-    });
+    recs.sort_by_key(|r| severity_rank(r.severity));
 
     recs
 }
 
+/// Rank a severity for sorting, with the most urgent issues first.
+fn severity_rank(severity: Severity) -> u8 {
+    match severity {
+        Severity::Critical => 0,
+        Severity::Warning => 1,
+        Severity::Normal => 2,
+    }
+}
+
+/// Build the full recommendation list from metric history.
+///
+/// This combines the single-snapshot checks in [`generate_recommendations`]
+/// with history-aware checks that need more than one sample, such as detecting
+/// a rising NVMe unsafe-shutdown counter.
+pub fn build_recommendations(
+    history: &VecDeque<Metrics>,
+    thresholds: &Thresholds,
+) -> Vec<Recommendation> {
+    let mut recs = match history.back() {
+        Some(latest) => generate_recommendations(latest, thresholds),
+        None => return Vec::new(),
+    };
+
+    if let Some(rec) = unsafe_shutdown_recommendation(history) {
+        recs.push(rec);
+        recs.sort_by_key(|r| severity_rank(r.severity));
+    }
+
+    recs
+}
+
+/// Flag NVMe unsafe shutdowns that accumulate without a reboot.
+///
+/// The `unsafe_shutdowns` counter rises on any ungraceful power loss, including
+/// a legitimate reboot or yanked cable. The failure signature worth flagging is
+/// the counter climbing while the host stays up, which means the drive
+/// controller reset itself on the bus. To avoid false positives, the baseline is
+/// taken from the start of the current uninterrupted uptime run: any increment
+/// that coincides with a reboot (uptime resetting) is excluded.
+pub fn unsafe_shutdown_recommendation(history: &VecDeque<Metrics>) -> Option<Recommendation> {
+    let latest = history.back()?;
+    let current_total = latest.smart_unsafe_shutdowns_total?;
+
+    // Walk back to the oldest sample that shares the current uptime run. A drop
+    // in uptime going forward in time marks a reboot boundary.
+    let samples: Vec<&Metrics> = history.iter().collect();
+    let mut baseline_idx = samples.len() - 1;
+    while baseline_idx > 0
+        && samples[baseline_idx - 1].uptime_secs <= samples[baseline_idx].uptime_secs
+    {
+        baseline_idx -= 1;
+    }
+
+    let baseline_total = samples[baseline_idx].smart_unsafe_shutdowns_total?;
+    let delta = current_total
+        .checked_sub(baseline_total)
+        .filter(|d| *d > 0)?;
+
+    Some(Recommendation {
+        severity: Severity::Warning,
+        title: "NVMe Reset Detected".into(),
+        advice: format!(
+            "{} unsafe shutdown(s) with no reboot: controller reset itself. \
+             Check: dmesg | grep -i nvme. Try nvme_core.default_ps_max_latency_us=0 (APST), \
+             then firmware update; RMA if it recurs",
+            delta
+        ),
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::generate_recommendations;
+    use std::collections::VecDeque;
+
+    use super::{build_recommendations, generate_recommendations, unsafe_shutdown_recommendation};
     use crate::metrics::Metrics;
     use crate::thresholds::{Severity, Thresholds};
 
@@ -333,6 +403,65 @@ mod tests {
         assert!(titles.contains(&"High I/O Wait".to_string()));
         assert!(titles.contains(&"High Major Faults".to_string()));
         assert!(titles.contains(&"High Dirty Pages".to_string()));
+    }
+
+    fn sample(uptime_secs: f64, unsafe_total: Option<u64>) -> Metrics {
+        Metrics {
+            uptime_secs,
+            smart_unsafe_shutdowns_total: unsafe_total,
+            ..baseline_metrics()
+        }
+    }
+
+    fn history(samples: Vec<Metrics>) -> VecDeque<Metrics> {
+        samples.into_iter().collect()
+    }
+
+    #[test]
+    fn unsafe_shutdown_is_quiet_when_counter_is_flat() {
+        let hist = history(vec![
+            sample(100.0, Some(44)),
+            sample(105.0, Some(44)),
+            sample(110.0, Some(44)),
+        ]);
+
+        assert!(unsafe_shutdown_recommendation(&hist).is_none());
+    }
+
+    #[test]
+    fn unsafe_shutdown_flags_increase_without_reboot() {
+        let hist = history(vec![
+            sample(100.0, Some(44)),
+            sample(105.0, Some(44)),
+            sample(110.0, Some(45)),
+        ]);
+
+        let rec = unsafe_shutdown_recommendation(&hist).expect("should flag a rising counter");
+        assert_eq!(rec.title, "NVMe Reset Detected");
+        assert_eq!(rec.severity, Severity::Warning);
+        assert!(rec.advice.starts_with("1 unsafe shutdown(s)"));
+    }
+
+    #[test]
+    fn unsafe_shutdown_ignores_increase_explained_by_reboot() {
+        // Uptime drops at the third sample, so the machine rebooted. The counter
+        // bump across that boundary is expected and must not be flagged.
+        let hist = history(vec![
+            sample(900.0, Some(44)),
+            sample(905.0, Some(44)),
+            sample(5.0, Some(45)),
+            sample(10.0, Some(45)),
+        ]);
+
+        assert!(unsafe_shutdown_recommendation(&hist).is_none());
+    }
+
+    #[test]
+    fn build_recommendations_includes_history_aware_checks() {
+        let hist = history(vec![sample(100.0, Some(44)), sample(105.0, Some(46))]);
+
+        let recs = build_recommendations(&hist, &Thresholds::default());
+        assert!(recs.iter().any(|r| r.title == "NVMe Reset Detected"));
     }
 
     #[test]

@@ -236,6 +236,12 @@ impl App {
         let smart_temps = smart.map(|s| s.device_temperatures()).unwrap_or_default();
         let disk_temps_snapshot = merge_disk_temperatures(&temps.nvme_temps, &smart_temps);
 
+        // === Unsafe shutdown counters (None unless at least one disk reports one) ===
+        let unsafe_shutdowns = smart
+            .filter(|s| s.available)
+            .map(|s| s.unsafe_shutdowns())
+            .filter(|readings| !readings.is_empty());
+
         // === Determine DIMM temperature source ===
         let dimm_temp_source = if !temps.dimm_temps.is_empty() {
             Some("jc42 hwmon".to_string())
@@ -393,6 +399,16 @@ impl App {
             smart_pending_sectors_total: smart
                 .filter(|s| s.available)
                 .map(|s| s.total_pending_sectors()),
+            smart_unsafe_shutdowns_total: unsafe_shutdowns
+                .as_ref()
+                .map(|readings| readings.iter().map(|(_, count)| count).sum()),
+            smart_unsafe_shutdowns: unsafe_shutdowns.as_ref().map(|readings| {
+                readings
+                    .iter()
+                    .map(|(name, count)| format!("{}:{}", normalize_disk_name(name), count))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            }),
 
             ipmi_available: ipmi.map(|s| s.available),
             ipmi_dimm_temp_max: ipmi.filter(|s| s.available).and_then(|s| s.max_dimm_temp()),

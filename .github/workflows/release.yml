@@ -48,12 +48,12 @@ jobs:
       - name: Create tarball
         run: |
           mkdir -p release
-          cp target/release/slow-rs release/
+          cp target/release/cargo-slow release/
           cp README.md LICENSE release/
-          tar -czvf slow-rs-${{ github.ref_name }}-x86_64-linux.tar.gz -C release .
+          tar -czvf cargo-slow-${{ github.ref_name }}-x86_64-linux.tar.gz -C release .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: slow-rs-*.tar.gz
+          files: cargo-slow-*.tar.gz
           generate_release_notes: true

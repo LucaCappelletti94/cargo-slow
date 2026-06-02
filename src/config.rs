@@ -1,4 +1,4 @@
-//! Command-line configuration for slow-rs.
+//! Command-line configuration for cargo-slow.
 //!
 //! This module defines all CLI arguments using `clap` for parsing.
 //! The configuration controls measurement intervals, output files,
@@ -8,7 +8,7 @@ use clap::Parser;
 
 /// System slowness diagnostic monitor.
 ///
-/// slow-rs continuously monitors system performance metrics and runs
+/// cargo-slow continuously monitors system performance metrics and runs
 /// benchmarks to help diagnose mysterious system slowdowns. It can
 /// identify issues related to:
 ///
@@ -21,13 +21,13 @@ use clap::Parser;
 ///
 /// ```bash
 /// # Run with TUI interface (default)
-/// slow-rs
+/// cargo slow
 ///
 /// # Run in headless mode with 10-second intervals
-/// slow-rs --headless -i 10
+/// cargo slow --headless -i 10
 ///
 /// # Enable I/O benchmark for disk throughput testing
-/// slow-rs --io-bench
+/// cargo slow --io-bench
 /// ```
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -83,7 +83,7 @@ pub struct Config {
 
     /// Enable I/O benchmark for disk throughput testing.
     ///
-    /// When enabled, slow-rs will periodically read/write test files to
+    /// When enabled, cargo-slow will periodically read/write test files to
     /// measure actual disk throughput. This is disabled by default because:
     ///
     /// - It drops page caches (requires root), causing major page faults
@@ -126,16 +126,16 @@ mod tests {
 
     #[test]
     fn rejects_zero_interval() {
-        assert!(Config::try_parse_from(["slow-rs", "--interval", "0"]).is_err());
+        assert!(Config::try_parse_from(["cargo-slow", "--interval", "0"]).is_err());
     }
 
     #[test]
     fn rejects_zero_file_size() {
-        assert!(Config::try_parse_from(["slow-rs", "--file-size-mb", "0"]).is_err());
+        assert!(Config::try_parse_from(["cargo-slow", "--file-size-mb", "0"]).is_err());
     }
 
     #[test]
     fn rejects_zero_history_size() {
-        assert!(Config::try_parse_from(["slow-rs", "--history-size", "0"]).is_err());
+        assert!(Config::try_parse_from(["cargo-slow", "--history-size", "0"]).is_err());
     }
 }

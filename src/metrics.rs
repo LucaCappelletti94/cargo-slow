@@ -1,4 +1,4 @@
-//! Metrics data structures for slow-rs.
+//! Metrics data structures for cargo-slow.
 //!
 //! This module defines the [`Metrics`] struct which holds all collected
 //! system performance data, as well as intermediate data structures used

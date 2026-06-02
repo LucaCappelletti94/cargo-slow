@@ -1,4 +1,4 @@
-//! IPMI sensor reading for slow-rs.
+//! IPMI sensor reading for cargo-slow.
 //!
 //! This module provides IPMI sensor data collection via ipmitool.
 //! Requires ipmitool to be installed and sudo access.

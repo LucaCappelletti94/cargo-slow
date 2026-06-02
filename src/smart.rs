@@ -1,4 +1,4 @@
-//! SMART disk health monitoring for slow-rs.
+//! SMART disk health monitoring for cargo-slow.
 //!
 //! This module provides SMART health data collection via smartctl.
 //! Requires smartmontools to be installed and sudo access for full data.

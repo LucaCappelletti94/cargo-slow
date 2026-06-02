@@ -36,7 +36,7 @@ use ratatui::{
 use crate::app::App;
 use crate::availability::MetricAvailability;
 use crate::metrics::{DiskTempReading, Metrics};
-use crate::recommendations::{generate_recommendations, Recommendation};
+use crate::recommendations::{build_recommendations, Recommendation};
 use crate::thresholds::{Severity, Thresholds};
 
 const MAX_WARNING_LINES: usize = 3;
@@ -159,10 +159,7 @@ fn draw_ui(
 ) {
     let size = f.area();
     let warnings = availability.get_warnings();
-    let recommendations = metrics_history
-        .back()
-        .map(|m| generate_recommendations(m, thresholds))
-        .unwrap_or_default();
+    let recommendations = build_recommendations(metrics_history, thresholds);
 
     if use_compact_layout(size) {
         draw_compact_ui(
@@ -1583,6 +1580,13 @@ fn draw_details(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rect) 
         ListItem::new(format!(
             "Disk Temp:{:>5.1}C",
             latest.disk_temp_max.unwrap_or(0.0)
+        )),
+        ListItem::new(format!(
+            "UnsafeSD: {:>6}",
+            latest
+                .smart_unsafe_shutdowns_total
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "-".to_string())
         )),
         ListItem::new(format!("Procs:    {:>6}", latest.process_count)),
         ListItem::new(format!("Blocked:  {:>6}", latest.procs_blocked)),

@@ -1,11 +1,13 @@
 # slow-rs
 
-`slow-rs` is a Linux terminal monitor for diagnosing slow machines. It samples
-system pressure, temperatures, disk health, and optional throughput benchmarks,
-then shows the results in a TUI and writes them to CSV.
+[![CI](https://github.com/LucaCappelletti94/slow-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaCappelletti94/slow-rs/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/LucaCappelletti94/slow-rs/branch/main/graph/badge.svg)](https://codecov.io/gh/LucaCappelletti94/slow-rs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://www.rust-lang.org)
 
-It is meant for the practical question: is this slowdown caused by I/O, memory
-pressure, thermal limits, disk health, or general resource exhaustion?
+`slow-rs` is a Linux terminal monitor for diagnosing slow machines. It samples system pressure, temperatures, disk health, and optional throughput benchmarks, then shows the results in a TUI and writes them to CSV.
+
+It is meant for the practical question: is this slowdown caused by I/O, memory pressure, thermal limits, disk health, or general resource exhaustion?
 
 ## Install
 
@@ -34,8 +36,7 @@ sudo ./target/release/slow-rs
 ./target/release/slow-rs --help
 ```
 
-`q`, `Esc`, and `Ctrl+C` exit the TUI. If stdout is not a terminal, `slow-rs`
-falls back to headless mode.
+`q`, `Esc`, and `Ctrl+C` exit the TUI. If stdout is not a terminal, `slow-rs` falls back to headless mode.
 
 ## What It Tracks
 
@@ -46,13 +47,11 @@ falls back to headless mode.
 - CPU, DIMM, NVMe, SATA disk, and IPMI/BMC temperatures when available.
 - SMART health, reallocated sectors, pending sectors, unsafe shutdowns, and disk pass/fail state.
 
-Implausible sensor values are ignored rather than plotted or logged as real
-temperatures.
+Implausible sensor values are ignored rather than plotted or logged as real temperatures.
 
 ## Privileges
 
-Most `/proc` and `/sys` metrics work as a normal user. Run with `sudo` for full
-SMART and IPMI/BMC coverage, especially SATA disk temperatures and disk health.
+Most `/proc` and `/sys` metrics work as a normal user. Run with `sudo` for full SMART and IPMI/BMC coverage, especially SATA disk temperatures and disk health.
 
 Optional tools:
 
@@ -75,16 +74,14 @@ The UI reports missing tools, missing sensors, and permission gaps.
 | `--headless` | off | Disable the TUI |
 | `--io-bench` | off | Enable active disk throughput benchmarks |
 
-`--io-bench` is disabled by default because it adds disk load and may disturb an
-already slow system. Enable it only when you want direct throughput measurements.
+`--io-bench` is disabled by default because it adds disk load and may disturb an already slow system. Enable it only when you want direct throughput measurements.
 
 ## Requirements
 
 - Linux.
 - Rust 1.88 or newer.
 - Kernel PSI support is optional but useful for pressure metrics.
-- Hardware temperature support depends on the machine and loaded kernel drivers
-  such as `coretemp`, `k10temp`, `zenpower`, `jc42`, and NVMe hwmon drivers.
+- Hardware temperature support depends on the machine and loaded kernel drivers such as `coretemp`, `k10temp`, `zenpower`, `jc42`, and NVMe hwmon drivers.
 
 ## License
 

@@ -1,6 +1,9 @@
 # cargo-slow
 
 [![CI](https://github.com/LucaCappelletti94/cargo-slow/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaCappelletti94/cargo-slow/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/cargo-slow.svg)](https://crates.io/crates/cargo-slow)
+[![docs.rs](https://docs.rs/cargo-slow/badge.svg)](https://docs.rs/cargo-slow)
+[![Downloads](https://img.shields.io/crates/d/cargo-slow.svg)](https://crates.io/crates/cargo-slow)
 [![codecov](https://codecov.io/gh/LucaCappelletti94/cargo-slow/branch/main/graph/badge.svg)](https://codecov.io/gh/LucaCappelletti94/cargo-slow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://www.rust-lang.org)

@@ -1,4 +1,4 @@
-//! Application state and logic for slow-rs.
+//! Application state and logic for cargo-slow.
 //!
 //! This module contains the main [`App`] struct which coordinates
 //! metrics collection, logging, and the user interface.
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn csv_headers_are_written_for_new_or_empty_files() {
         let path = std::env::temp_dir().join(format!(
-            "slow-rs-empty-csv-{}-{}.csv",
+            "cargo-slow-empty-csv-{}-{}.csv",
             std::process::id(),
             "headers"
         ));
@@ -578,7 +578,7 @@ mod tests {
 
     fn temp_path(name: &str, extension: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "slow-rs-{}-{}.{}",
+            "cargo-slow-{}-{}.{}",
             name,
             std::process::id(),
             extension

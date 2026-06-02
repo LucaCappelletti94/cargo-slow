@@ -1,42 +1,42 @@
-# slow-rs
+# cargo-slow
 
-[![CI](https://github.com/LucaCappelletti94/slow-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaCappelletti94/slow-rs/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/LucaCappelletti94/slow-rs/branch/main/graph/badge.svg)](https://codecov.io/gh/LucaCappelletti94/slow-rs)
+[![CI](https://github.com/LucaCappelletti94/cargo-slow/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaCappelletti94/cargo-slow/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/LucaCappelletti94/cargo-slow/branch/main/graph/badge.svg)](https://codecov.io/gh/LucaCappelletti94/cargo-slow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://www.rust-lang.org)
 
-`slow-rs` is a Linux terminal monitor for diagnosing slow machines. It samples system pressure, temperatures, disk health, and optional throughput benchmarks, then shows the results in a TUI and writes them to CSV.
+`cargo-slow` is a Linux terminal monitor for diagnosing slow machines, shipped as the `cargo slow` subcommand. It samples system pressure, temperatures, disk health, and optional throughput benchmarks, then shows the results in a TUI and writes them to CSV.
 
 It is meant for the practical question: is this slowdown caused by I/O, memory pressure, thermal limits, disk health, or general resource exhaustion?
 
 ## Install
 
 ```bash
-cargo build --release
+cargo install cargo-slow
 ```
 
-The binary is written to `target/release/slow-rs`.
+This installs the `cargo-slow` binary, which Cargo runs as the `cargo slow` subcommand. You can also invoke the binary directly as `cargo-slow`.
 
 ## Usage
 
 ```bash
 # TUI dashboard
-./target/release/slow-rs
+cargo slow
 
 # Full hardware data, when SMART/IPMI access needs privileges
-sudo ./target/release/slow-rs
+sudo $(which cargo-slow)
 
 # Logging only
-./target/release/slow-rs --headless
+cargo slow --headless
 
 # Include active disk throughput checks
-./target/release/slow-rs --io-bench
+cargo slow --io-bench
 
 # Show all options
-./target/release/slow-rs --help
+cargo slow --help
 ```
 
-`q`, `Esc`, and `Ctrl+C` exit the TUI. If stdout is not a terminal, `slow-rs` falls back to headless mode.
+`q`, `Esc`, and `Ctrl+C` exit the TUI. If stdout is not a terminal, `cargo slow` falls back to headless mode.
 
 ## What It Tracks
 

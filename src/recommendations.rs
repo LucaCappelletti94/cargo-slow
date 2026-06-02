@@ -1,4 +1,4 @@
-//! Actionable recommendations for slow-rs.
+//! Actionable recommendations for cargo-slow.
 //!
 //! This module analyzes metrics and generates actionable advice
 //! when issues are detected.

@@ -1,4 +1,4 @@
-//! Metric availability tracking for slow-rs.
+//! Metric availability tracking for cargo-slow.
 //!
 //! This module tracks which metric sources are available on the system,
 //! allowing the UI to show warnings when metrics are missing due to

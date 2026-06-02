@@ -1,4 +1,4 @@
-//! Terminal User Interface for slow-rs.
+//! Terminal User Interface for cargo-slow.
 //!
 //! This module provides a real-time dashboard using `ratatui` that displays:
 //!
@@ -252,7 +252,7 @@ fn draw_loading_screen(f: &mut Frame, io_bench_enabled: bool) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("slow-rs")
+        .title("cargo-slow")
         .border_style(Style::default().fg(Color::Cyan));
 
     let mut lines = vec![
@@ -286,7 +286,7 @@ fn draw_loading_screen(f: &mut Frame, io_bench_enabled: bool) {
 fn draw_status_bar(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rect) {
     let status_text = if let Some(m) = metrics_history.back() {
         format!(
-            " slow-rs | {} | CPU: {:.1}% | Mem: {}/{} MB | Load: {:.2} {:.2} {:.2} | Samples: {} | q quit",
+            " cargo-slow | {} | CPU: {:.1}% | Mem: {}/{} MB | Load: {:.2} {:.2} {:.2} | Samples: {} | q quit",
             m.datetime,
             m.cpu_usage_percent,
             m.mem_used_mb,
@@ -297,7 +297,7 @@ fn draw_status_bar(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rec
             metrics_history.len()
         )
     } else {
-        " slow-rs | Collecting initial metrics... | q quit".to_string()
+        " cargo-slow | Collecting initial metrics... | q quit".to_string()
     };
 
     let status = Paragraph::new(status_text)
@@ -429,7 +429,7 @@ fn draw_compact_ui(
 fn draw_compact_status(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area: Rect) {
     let text = if let Some(m) = metrics_history.back() {
         format!(
-            " slow-rs | CPU {:>4.1}% | Avail {} | Load {:.2}/{:.2}/{:.2} | samples {} | q quit",
+            " cargo-slow | CPU {:>4.1}% | Avail {} | Load {:.2}/{:.2}/{:.2} | samples {} | q quit",
             m.cpu_usage_percent,
             format_mb_compact(m.mem_available_mb),
             m.load_avg_1,
@@ -438,7 +438,7 @@ fn draw_compact_status(f: &mut Frame, metrics_history: &VecDeque<Metrics>, area:
             metrics_history.len()
         )
     } else {
-        " slow-rs | collecting initial metrics | q quit".to_string()
+        " cargo-slow | collecting initial metrics | q quit".to_string()
     };
 
     let status = Paragraph::new(text).style(Style::default().fg(Color::White).bg(Color::DarkGray));
@@ -1616,7 +1616,7 @@ pub fn run_headless(
     let csv_file = app.config.csv_file.clone();
     let history_size = app.config.history_size;
 
-    println!("slow-rs - System Slowness Diagnostic Monitor");
+    println!("cargo-slow - System Slowness Diagnostic Monitor");
     println!("=============================================");
     println!("Logging to: {}", csv_file);
     println!("Interval: {} seconds", interval.as_secs());
@@ -1786,7 +1786,7 @@ mod tests {
     fn compact_dashboard_renders_core_panels() {
         let rendered = render_dashboard(80, 24);
 
-        assert!(rendered.contains("slow-rs"));
+        assert!(rendered.contains("cargo-slow"));
         assert!(rendered.contains("CPU %"));
         assert!(rendered.contains("Avail GB"));
         assert!(rendered.contains("Details"));

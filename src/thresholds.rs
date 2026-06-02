@@ -1,4 +1,4 @@
-//! Threshold definitions for slow-rs.
+//! Threshold definitions for cargo-slow.
 //!
 //! This module defines severity levels and threshold values for
 //! determining when metrics should trigger warnings or critical alerts.

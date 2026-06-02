@@ -1,15 +1,15 @@
 [package]
-name = "slow-rs"
+name = "cargo-slow"
 version = "0.1.0"
 edition = "2021"
 authors = ["Luca Cappelletti"]
-description = "System slowness diagnostic monitor - identify disk, memory, CPU, and thermal issues"
+description = "Cargo subcommand to diagnose a slow machine: identify disk, memory, CPU, and thermal issues"
 license = "MIT"
-repository = "https://github.com/LucaCappelletti94/slow-rs"
-homepage = "https://github.com/LucaCappelletti94/slow-rs"
-documentation = "https://docs.rs/slow-rs"
+repository = "https://github.com/LucaCappelletti94/cargo-slow"
+homepage = "https://github.com/LucaCappelletti94/cargo-slow"
+documentation = "https://docs.rs/cargo-slow"
 readme = "README.md"
-keywords = ["monitoring", "diagnostics", "performance", "system", "linux"]
+keywords = ["cargo-subcommand", "monitoring", "diagnostics", "performance", "linux"]
 categories = ["command-line-utilities", "development-tools::profiling"]
 rust-version = "1.88"
 exclude = [
@@ -19,7 +19,7 @@ exclude = [
 ]
 
 [[bin]]
-name = "slow-rs"
+name = "cargo-slow"
 path = "src/main.rs"
 
 [dependencies]

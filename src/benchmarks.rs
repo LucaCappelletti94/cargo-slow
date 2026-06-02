@@ -1,4 +1,4 @@
-//! Performance benchmarks for slow-rs.
+//! Performance benchmarks for cargo-slow.
 //!
 //! This module provides active performance tests that run periodically
 //! to measure actual system performance, as opposed to the passive
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn create_test_file_writes_requested_pattern_and_size() {
         let path = std::env::temp_dir().join(format!(
-            "slow-rs-create-test-file-{}.bin",
+            "cargo-slow-create-test-file-{}.bin",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&path);

@@ -1,4 +1,4 @@
-//! System statistics collectors for slow-rs.
+//! System statistics collectors for cargo-slow.
 //!
 //! This module provides functions to read various system metrics from
 //! the Linux `/proc` filesystem and other system interfaces.

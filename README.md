@@ -11,7 +11,7 @@
 
 It is meant for the practical question: is this slowdown caused by I/O, memory pressure, thermal limits, disk health, or general resource exhaustion?
 
-![cargo-slow TUI dashboard](https://raw.githubusercontent.com/LucaCappelletti94/cargo-slow/main/screenshot.png)
+![cargo-slow TUI dashboard](https://raw.githubusercontent.com/LucaCappelletti94/cargo-slow/main/demo.gif)
 
 ## Install
 
